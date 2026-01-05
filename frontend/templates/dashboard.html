@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PhaseProfiler - Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 PhaseProfiler Dashboard</h1>
+            <p>Real-time metrics, phase detection, and bottleneck analysis</p>
+        </header>
+
+        <nav>
+            <ul>
+                <li><a href="/">Home</a></li>
+                <li><a href="/dashboard" class="active">Dashboard</a></li>
+                <li><a href="/results">Results</a></li>
+            </ul>
+        </nav>
+
+        <!-- Metrics Summary Cards -->
+        <div class="card">
+            <h2>System Metrics</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <h4>Average CPU Usage</h4>
+                    <div class="value" id="metric-cpu">0.0</div>
+                    <div class="unit">%</div>
+                </div>
+                <div class="metric-card">
+                    <h4>Average Memory Usage</h4>
+                    <div class="value" id="metric-memory">0.0</div>
+                    <div class="unit">%</div>
+                </div>
+                <div class="metric-card">
+                    <h4>Average I/O Rate</h4>
+                    <div class="value" id="metric-io">0.0</div>
+                    <div class="unit">MB/s</div>
+                </div>
+                <div class="metric-card">
+                    <h4>Total Samples</h4>
+                    <div class="value" id="metric-samples">0</div>
+                    <div class="unit">samples</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Metrics Timeline Chart -->
+        <div class="card">
+            <h2>Metrics Over Time</h2>
+            <div class="chart-container">
+                <canvas id="metricsChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Phase Detection -->
+        <div class="card">
+            <h2>Phase Timeline</h2>
+            <p>Execution phases detected over time:</p>
+            <div id="phaseTimeline" class="phase-timeline"></div>
+        </div>
+
+        <!-- Phase Distribution Chart -->
+        <div class="card">
+            <h2>Phase Distribution</h2>
+            <div class="chart-container">
+                <canvas id="phaseChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Bottleneck Classification -->
+        <div class="card">
+            <h2>Bottleneck Classification</h2>
+            <div id="bottleneckList" class="bottleneck-list">
+                <p>Loading bottleneck analysis...</p>
+            </div>
+            <div class="chart-container" style="height: 300px;">
+                <canvas id="bottleneckChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Refresh Button -->
+        <div class="card text-center">
+            <button onclick="refreshDashboard()" class="btn">🔄 Refresh Dashboard</button>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+    <script>
+        // Refresh dashboard function
+        async function refreshDashboard() {
+            const statusDiv = document.createElement('div');
+            statusDiv.className = 'alert alert-info';
+            statusDiv.textContent = 'Refreshing dashboard...';
+            document.querySelector('.container').insertBefore(statusDiv, document.querySelector('.card'));
+
+            try {
+                // Fetch metrics
+                const metricsResponse = await fetch('/api/metrics');
+                const metricsData = await metricsResponse.json();
+
+                if (metricsData.status === 'success' && metricsData.metrics) {
+                    const metrics = metricsData.metrics;
+
+                    // Update metrics cards
+                    updateMetricsCards(metrics);
+                    document.getElementById('metric-samples').textContent = metrics.length;
+
+                    // Update charts
+                    initMetricsChart('metricsChart', metrics);
+                    initPhaseChart('phaseChart', metrics);
+                    renderPhaseTimeline('phaseTimeline', metrics);
+
+                    // Fetch bottleneck classifications
+                    try {
+                        const features = metrics.slice(-10).map(m => [
+                            parseFloat(m.cpu_percent || 0),
+                            parseFloat(m.memory_percent || 0),
+                            parseFloat(m.memory_used_gb || 0),
+                            parseFloat(m.disk_read_mb || 0),
+                            parseFloat(m.disk_write_mb || 0),
+                            parseFloat(m.network_sent_mb || 0),
+                            parseFloat(m.network_recv_mb || 0)
+                        ]);
+
+                        const classifyResponse = await fetch('/api/classify', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ features: features })
+                        });
+
+                        const classifyData = await classifyResponse.json();
+                        if (classifyData.status === 'success') {
+                            // Create bottleneck data structure
+                            const bottlenecks = classifyData.predictions.map((pred, idx) => ({
+                                type: pred,
+                                severity: classifyData.probabilities ? 
+                                    Math.max(...classifyData.probabilities[idx]) * 10 : 5,
+                                description: `Detected ${pred} phase in sample ${idx + 1}`,
+                                recommendation: getRecommendation(pred)
+                            }));
+
+                            renderBottleneckList('bottleneckList', bottlenecks);
+                            initBottleneckChart('bottleneckChart', bottlenecks);
+                        }
+                    } catch (error) {
+                        console.error('Error classifying bottlenecks:', error);
+                        document.getElementById('bottleneckList').innerHTML = 
+                            '<p>Bottleneck classification unavailable. Please train models first.</p>';
+                    }
+                } else {
+                    statusDiv.className = 'alert alert-warning';
+                    statusDiv.textContent = 'No metrics data available. Start profiling first.';
+                }
+            } catch (error) {
+                statusDiv.className = 'alert alert-error';
+                statusDiv.textContent = `Error: ${error.message}`;
+            }
+
+            setTimeout(() => statusDiv.remove(), 3000);
+        }
+
+        function getRecommendation(phase) {
+            const recommendations = {
+                'cpu_bound': 'Consider parallelization, algorithm optimization, or using faster libraries',
+                'io_bound': 'Optimize I/O operations, use async I/O, or cache frequently accessed data',
+                'memory_bound': 'Reduce memory allocation, optimize data structures, or increase available memory',
+                'memory_bound': 'Optimize memory usage, consider memory pooling or garbage collection tuning',
+                'mixed': 'Multiple optimization strategies may be needed',
+                'idle': 'System is idle - no optimization needed'
+            };
+            return recommendations[phase] || 'Review code for optimization opportunities';
+        }
+
+        // Initial load
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshDashboard();
+            // Auto-refresh every 10 seconds
+            setInterval(refreshDashboard, 10000);
+        });
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,5 @@
+# This directory stores trained ML models
+# Place your trained models here:
+# - bottleneck_classifier.pkl
+# - regression_model.pkl
+

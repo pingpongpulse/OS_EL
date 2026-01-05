@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PhaseProfiler - Home</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 PhaseProfiler</h1>
+            <p>AI-Powered Performance Profiling & Optimization Tool</p>
+        </header>
+
+        <nav>
+            <ul>
+                <li><a href="/" class="active">Home</a></li>
+                <li><a href="/dashboard">Dashboard</a></li>
+                <li><a href="/results">Results</a></li>
+            </ul>
+        </nav>
+
+        <div class="card">
+            <h2>Start Profiling</h2>
+            <p>Profile your program to identify bottlenecks and get optimization recommendations.</p>
+
+            <form id="profilingForm" class="mt-20">
+                <div class="form-group">
+                    <label for="programPath">Program Path:</label>
+                    <input 
+                        type="text" 
+                        id="programPath" 
+                        name="programPath" 
+                        placeholder="/path/to/your/program.py"
+                        required
+                    >
+                    <small>Enter the full path to the program you want to profile</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="duration">Profiling Duration (seconds):</label>
+                    <input 
+                        type="number" 
+                        id="duration" 
+                        name="duration" 
+                        value="60" 
+                        min="10" 
+                        max="600"
+                        required
+                    >
+                    <small>How long to collect metrics (10-600 seconds)</small>
+                </div>
+
+                <button type="submit" id="startProfilingBtn">
+                    <span id="buttonText">Start Profiling</span>
+                    <span id="buttonSpinner" class="loading hidden"></span>
+                </button>
+            </form>
+
+            <div id="statusMessage" class="mt-20"></div>
+        </div>
+
+        <div class="card">
+            <h2>How It Works</h2>
+            <ol style="padding-left: 20px; line-height: 2;">
+                <li><strong>Start Profiling:</strong> Enter your program path and duration</li>
+                <li><strong>Collect Metrics:</strong> PhaseProfiler monitors CPU, memory, I/O, and network usage</li>
+                <li><strong>Detect Phases:</strong> AI identifies execution phases (CPU-bound, I/O-bound, memory-bound, etc.)</li>
+                <li><strong>Analyze Bottlenecks:</strong> ML models classify bottlenecks and predict optimization impact</li>
+                <li><strong>View Results:</strong> Get recommendations and predicted speedup improvements</li>
+            </ol>
+        </div>
+
+        <div class="card">
+            <h2>Features</h2>
+            <ul style="padding-left: 20px; line-height: 2;">
+                <li>✅ Real-time system metrics collection</li>
+                <li>✅ Automatic phase detection</li>
+                <li>✅ AI-powered bottleneck classification</li>
+                <li>✅ Optimization impact prediction</li>
+                <li>✅ Interactive dashboards and visualizations</li>
+                <li>✅ Actionable optimization recommendations</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('profilingForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const button = document.getElementById('startProfilingBtn');
+            const buttonText = document.getElementById('buttonText');
+            const buttonSpinner = document.getElementById('buttonSpinner');
+            const statusMessage = document.getElementById('statusMessage');
+            
+            const programPath = document.getElementById('programPath').value;
+            const duration = parseInt(document.getElementById('duration').value);
+            
+            // Disable button and show spinner
+            button.disabled = true;
+            buttonText.textContent = 'Profiling...';
+            buttonSpinner.classList.remove('hidden');
+            statusMessage.innerHTML = '';
+            
+            try {
+                const response = await fetch('/api/profile', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        program_path: programPath,
+                        duration: duration
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.status === 'success') {
+                    statusMessage.innerHTML = `
+                        <div class="alert alert-success">
+                            <strong>Success!</strong> Profiling completed. 
+                            <a href="/dashboard" style="color: #155724; text-decoration: underline;">View Dashboard</a>
+                        </div>
+                    `;
+                } else {
+                    statusMessage.innerHTML = `
+                        <div class="alert alert-error">
+                            <strong>Error:</strong> ${data.error || 'Profiling failed'}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                statusMessage.innerHTML = `
+                    <div class="alert alert-error">
+                        <strong>Error:</strong> ${error.message}
+                    </div>
+                `;
+            } finally {
+                // Re-enable button
+                button.disabled = false;
+                buttonText.textContent = 'Start Profiling';
+                buttonSpinner.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
+

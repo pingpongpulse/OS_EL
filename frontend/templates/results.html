@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PhaseProfiler - Results</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📈 PhaseProfiler Results</h1>
+            <p>Optimization recommendations and predicted impact</p>
+        </header>
+
+        <nav>
+            <ul>
+                <li><a href="/">Home</a></li>
+                <li><a href="/dashboard">Dashboard</a></li>
+                <li><a href="/results" class="active">Results</a></li>
+            </ul>
+        </nav>
+
+        <!-- Summary Card -->
+        <div class="card">
+            <h2>Analysis Summary</h2>
+            <div id="summaryContent">
+                <p>Loading analysis results...</p>
+            </div>
+        </div>
+
+        <!-- Predicted Speedup -->
+        <div class="card">
+            <h2>Predicted Optimization Impact</h2>
+            <div id="speedupContent">
+                <p>Calculating predicted speedup...</p>
+            </div>
+        </div>
+
+        <!-- Recommendations -->
+        <div class="card">
+            <h2>Optimization Recommendations</h2>
+            <div id="recommendationsContent">
+                <p>Generating recommendations...</p>
+            </div>
+        </div>
+
+        <!-- Before/After Comparison -->
+        <div class="card">
+            <h2>Before/After Comparison</h2>
+            <div id="comparisonContent">
+                <p>Comparison data will appear here after optimization.</p>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="card text-center">
+            <button onclick="loadResults()" class="btn">🔄 Refresh Results</button>
+            <a href="/dashboard" class="btn btn-secondary" style="text-decoration: none; display: inline-block; margin-left: 10px;">← Back to Dashboard</a>
+        </div>
+    </div>
+
+    <script>
+        async function loadResults() {
+            try {
+                // Fetch metrics for analysis
+                const metricsResponse = await fetch('/api/metrics');
+                const metricsData = await metricsResponse.json();
+
+                if (metricsData.status !== 'success' || !metricsData.metrics || metricsData.metrics.length === 0) {
+                    document.getElementById('summaryContent').innerHTML = 
+                        '<div class="alert alert-warning">No profiling data available. Please run profiling first.</div>';
+                    return;
+                }
+
+                const metrics = metricsData.metrics;
+
+                // Calculate summary statistics
+                const avgCpu = metrics.reduce((sum, m) => sum + parseFloat(m.cpu_percent || 0), 0) / metrics.length;
+                const avgMemory = metrics.reduce((sum, m) => sum + parseFloat(m.memory_percent || 0), 0) / metrics.length;
+                const phases = metrics.map(m => m.phase);
+                const phaseCounts = {};
+                phases.forEach(p => phaseCounts[p] = (phaseCounts[p] || 0) + 1);
+                const dominantPhase = Object.keys(phaseCounts).reduce((a, b) => phaseCounts[a] > phaseCounts[b] ? a : b);
+
+                // Update summary
+                document.getElementById('summaryContent').innerHTML = `
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <h4>Total Samples</h4>
+                            <div class="value">${metrics.length}</div>
+                            <div class="unit">samples</div>
+                        </div>
+                        <div class="metric-card">
+                            <h4>Average CPU</h4>
+                            <div class="value">${avgCpu.toFixed(1)}</div>
+                            <div class="unit">%</div>
+                        </div>
+                        <div class="metric-card">
+                            <h4>Average Memory</h4>
+                            <div class="value">${avgMemory.toFixed(1)}</div>
+                            <div class="unit">%</div>
+                        </div>
+                        <div class="metric-card">
+                            <h4>Dominant Phase</h4>
+                            <div class="value" style="font-size: 1.2em;">${dominantPhase.replace('_', ' ').toUpperCase()}</div>
+                            <div class="unit">phase</div>
+                        </div>
+                    </div>
+                `;
+
+                // Predict speedup
+                try {
+                    const features = metrics.slice(-10).map(m => [
+                        parseFloat(m.cpu_percent || 0),
+                        parseFloat(m.memory_percent || 0),
+                        parseFloat(m.memory_used_gb || 0),
+                        parseFloat(m.disk_read_mb || 0),
+                        parseFloat(m.disk_write_mb || 0),
+                        parseFloat(m.network_sent_mb || 0),
+                        parseFloat(m.network_recv_mb || 0)
+                    ]);
+
+                    const speedupResponse = await fetch('/api/predict-speedup', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ features: features })
+                    });
+
+                    const speedupData = await speedupResponse.json();
+                    
+                    if (speedupData.status === 'success') {
+                        const avgSpeedup = speedupData.speedup.reduce((a, b) => a + b, 0) / speedupData.speedup.length;
+                        const improvement = (avgSpeedup - 1) * 100;
+
+                        document.getElementById('speedupContent').innerHTML = `
+                            <div class="recommendation-card">
+                                <h4>Predicted Performance Improvement</h4>
+                                <p><strong>Expected Speedup:</strong> ${avgSpeedup.toFixed(2)}x</p>
+                                <p><strong>Performance Gain:</strong> ${improvement.toFixed(1)}%</p>
+                                <div class="predicted-impact">
+                                    ${improvement > 0 ? 
+                                        `🎯 Applying recommended optimizations could improve performance by ${improvement.toFixed(1)}%` :
+                                        'ℹ️ Current performance is already well optimized'}
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        document.getElementById('speedupContent').innerHTML = `
+                            <div class="alert alert-info">
+                                Speedup prediction model not available. Please train the model first.
+                            </div>
+                        `;
+                    }
+                } catch (error) {
+                    document.getElementById('speedupContent').innerHTML = `
+                        <div class="alert alert-warning">
+                            Unable to predict speedup: ${error.message}
+                        </div>
+                    `;
+                }
+
+                // Generate recommendations
+                const recommendations = generateRecommendations(metrics, dominantPhase);
+                let recommendationsHTML = '';
+                recommendations.forEach(rec => {
+                    recommendationsHTML += `
+                        <div class="recommendation-card">
+                            <h4>${rec.title}</h4>
+                            <p>${rec.description}</p>
+                            ${rec.impact ? `<p class="predicted-impact">Expected Impact: ${rec.impact}</p>` : ''}
+                        </div>
+                    `;
+                });
+
+                document.getElementById('recommendationsContent').innerHTML = recommendationsHTML || 
+                    '<p>No specific recommendations at this time.</p>';
+
+            } catch (error) {
+                document.getElementById('summaryContent').innerHTML = `
+                    <div class="alert alert-error">
+                        Error loading results: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        function generateRecommendations(metrics, dominantPhase) {
+            const recommendations = [];
+
+            const avgCpu = metrics.reduce((sum, m) => sum + parseFloat(m.cpu_percent || 0), 0) / metrics.length;
+            const avgMemory = metrics.reduce((sum, m) => sum + parseFloat(m.memory_percent || 0), 0) / metrics.length;
+
+            if (dominantPhase === 'cpu_bound') {
+                recommendations.push({
+                    title: 'CPU Optimization',
+                    description: 'Your application is CPU-bound. Consider parallelizing computations, optimizing algorithms, or using more efficient libraries.',
+                    impact: '20-50% performance improvement expected'
+                });
+            }
+
+            if (dominantPhase === 'io_bound') {
+                recommendations.push({
+                    title: 'I/O Optimization',
+                    description: 'Your application is I/O-bound. Consider using asynchronous I/O, caching frequently accessed data, or optimizing file operations.',
+                    impact: '30-100% performance improvement expected'
+                });
+            }
+
+            if (dominantPhase === 'memory_bound' || avgMemory > 80) {
+                recommendations.push({
+                    title: 'Memory Optimization',
+                    description: 'High memory usage detected. Consider optimizing data structures, reducing memory allocations, or implementing memory pooling.',
+                    impact: '15-40% performance improvement expected'
+                });
+            }
+
+            if (avgCpu > 80) {
+                recommendations.push({
+                    title: 'High CPU Usage',
+                    description: 'CPU usage is consistently high. Consider load balancing, task distribution, or hardware upgrades.',
+                    impact: 'Varies based on optimization strategy'
+                });
+            }
+
+            if (recommendations.length === 0) {
+                recommendations.push({
+                    title: 'System Well Optimized',
+                    description: 'Your system appears to be running efficiently. Monitor for changes over time.',
+                    impact: null
+                });
+            }
+
+            return recommendations;
+        }
+
+        // Load results on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadResults();
+        });
+    </script>
+</body>
+</html>
+
