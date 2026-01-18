@@ -3,148 +3,107 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PhaseProfiler - Home</title>
+    <title>PhaseSentinel - AI-Powered Profiler</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🚀 PhaseProfiler</h1>
-            <p>AI-Powered Performance Profiling & Optimization Tool</p>
-        </header>
-
-        <nav>
-            <ul>
+    <nav class="navbar">
+        <div class="nav-content">
+            <div class="logo">⚡ PhaseSentinel</div>
+            <ul class="nav-links">
                 <li><a href="/" class="active">Home</a></li>
                 <li><a href="/dashboard">Dashboard</a></li>
                 <li><a href="/results">Results</a></li>
             </ul>
-        </nav>
+        </div>
+    </nav>
 
-        <div class="card">
-            <h2>Start Profiling</h2>
-            <p>Profile your program to identify bottlenecks and get optimization recommendations.</p>
-
-            <form id="profilingForm" class="mt-20">
+    <div class="hero">
+        <div class="hero-content">
+            <h1 class="hero-title">PhaseSentinel</h1>
+            <p class="hero-subtitle">AI-Powered Program Profiler & Optimization Engine</p>
+            <p class="hero-description">Real-time phase detection, deadlock analysis, and ML-driven recommendations</p>
+            
+            <form id="quickProfileForm" class="hero-form">
                 <div class="form-group">
-                    <label for="programPath">Program Path:</label>
-                    <input 
-                        type="text" 
-                        id="programPath" 
-                        name="programPath" 
-                        placeholder="/path/to/your/program.py"
-                        required
-                    >
-                    <small>Enter the full path to the program you want to profile</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="duration">Profiling Duration (seconds):</label>
                     <input 
                         type="number" 
                         id="duration" 
                         name="duration" 
-                        value="60" 
-                        min="10" 
-                        max="600"
-                        required
+                        value="10" 
+                        min="1" 
+                        max="300"
+                        placeholder="Duration (seconds)"
                     >
-                    <small>How long to collect metrics (10-600 seconds)</small>
                 </div>
-
-                <button type="submit" id="startProfilingBtn">
-                    <span id="buttonText">Start Profiling</span>
-                    <span id="buttonSpinner" class="loading hidden"></span>
+                <button type="submit" class="btn btn-primary btn-large">
+                    Start Profiling
                 </button>
             </form>
-
-            <div id="statusMessage" class="mt-20"></div>
-        </div>
-
-        <div class="card">
-            <h2>How It Works</h2>
-            <ol style="padding-left: 20px; line-height: 2;">
-                <li><strong>Start Profiling:</strong> Enter your program path and duration</li>
-                <li><strong>Collect Metrics:</strong> PhaseProfiler monitors CPU, memory, I/O, and network usage</li>
-                <li><strong>Detect Phases:</strong> AI identifies execution phases (CPU-bound, I/O-bound, memory-bound, etc.)</li>
-                <li><strong>Analyze Bottlenecks:</strong> ML models classify bottlenecks and predict optimization impact</li>
-                <li><strong>View Results:</strong> Get recommendations and predicted speedup improvements</li>
-            </ol>
-        </div>
-
-        <div class="card">
-            <h2>Features</h2>
-            <ul style="padding-left: 20px; line-height: 2;">
-                <li>✅ Real-time system metrics collection</li>
-                <li>✅ Automatic phase detection</li>
-                <li>✅ AI-powered bottleneck classification</li>
-                <li>✅ Optimization impact prediction</li>
-                <li>✅ Interactive dashboards and visualizations</li>
-                <li>✅ Actionable optimization recommendations</li>
-            </ul>
+            
+            <div id="heroMessage"></div>
         </div>
     </div>
 
+    <section class="features">
+        <div class="container">
+            <h2 class="section-title">Key Features</h2>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Phase Detection</h3>
+                    <p>Rule-based segmentation into CPU-bound, I/O-bound, memory-bound phases</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔍</div>
+                    <h3>Anomaly Detection</h3>
+                    <p>ML-powered security anomaly detection with configurable thresholds</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔗</div>
+                    <h3>Deadlock Analysis</h3>
+                    <p>Detect deadlock risks via wait-for graph cycle detection</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚙️</div>
+                    <h3>Optimization</h3>
+                    <p>Predictive recommendations with estimated speedup gains</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <p>&copy; 2024 PhaseSentinel. Profiling made intelligent.</p>
+    </footer>
+
     <script>
-        document.getElementById('profilingForm').addEventListener('submit', async function(e) {
+        document.getElementById('quickProfileForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-            
-            const button = document.getElementById('startProfilingBtn');
-            const buttonText = document.getElementById('buttonText');
-            const buttonSpinner = document.getElementById('buttonSpinner');
-            const statusMessage = document.getElementById('statusMessage');
-            
-            const programPath = document.getElementById('programPath').value;
             const duration = parseInt(document.getElementById('duration').value);
+            const msg = document.getElementById('heroMessage');
             
-            // Disable button and show spinner
-            button.disabled = true;
-            buttonText.textContent = 'Profiling...';
-            buttonSpinner.classList.remove('hidden');
-            statusMessage.innerHTML = '';
+            if (duration < 1 || duration > 300) {
+                msg.innerHTML = '<div class="alert alert-error">Duration must be 1-300 seconds</div>';
+                return;
+            }
+            
+            msg.innerHTML = '<div class="alert alert-info">Starting profiling...</div>';
             
             try {
                 const response = await fetch('/api/profile', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        program_path: programPath,
-                        duration: duration
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ duration })
                 });
                 
-                const data = await response.json();
-                
-                if (response.ok && data.status === 'success') {
-                    statusMessage.innerHTML = `
-                        <div class="alert alert-success">
-                            <strong>Success!</strong> Profiling completed. 
-                            <a href="/dashboard" style="color: #155724; text-decoration: underline;">View Dashboard</a>
-                        </div>
-                    `;
+                if (response.ok) {
+                    const data = await response.json();
+                    window.location.href = `/results/${data.id}`;
                 } else {
-                    statusMessage.innerHTML = `
-                        <div class="alert alert-error">
-                            <strong>Error:</strong> ${data.error || 'Profiling failed'}
-                        </div>
-                    `;
+                    const error = await response.json();
+                    msg.innerHTML = `<div class="alert alert-error">${error.error}</div>`;
                 }
-            } catch (error) {
-                statusMessage.innerHTML = `
-                    <div class="alert alert-error">
-                        <strong>Error:</strong> ${error.message}
-                    </div>
-                `;
-            } finally {
-                // Re-enable button
-                button.disabled = false;
-                buttonText.textContent = 'Start Profiling';
-                buttonSpinner.classList.add('hidden');
-            }
-        });
-    </script>
-</body>
-</html>
+            } catch (e) {
+                msg.innerHTML = `<div class="alert alert-error">Error: ${e.message}</div>`;
 

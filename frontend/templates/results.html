@@ -3,51 +3,244 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PhaseProfiler - Results</title>
+    <title>PhaseSentinel - Results</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>📈 PhaseProfiler Results</h1>
-            <p>Optimization recommendations and predicted impact</p>
-        </header>
-
-        <nav>
-            <ul>
+    <nav class="navbar">
+        <div class="nav-content">
+            <div class="logo">⚡ PhaseSentinel</div>
+            <ul class="nav-links">
                 <li><a href="/">Home</a></li>
                 <li><a href="/dashboard">Dashboard</a></li>
                 <li><a href="/results" class="active">Results</a></li>
             </ul>
-        </nav>
+        </div>
+    </nav>
 
-        <!-- Summary Card -->
+    <div class="container">
+        <h1>Analysis Results</h1>
+        <p class="subtitle">Recommendations and optimization opportunities</p>
+
+        <!-- Alerts Section -->
+        <div id="alertsSection"></div>
+
+        <!-- Summary -->
         <div class="card">
-            <h2>Analysis Summary</h2>
-            <div id="summaryContent">
-                <p>Loading analysis results...</p>
+            <h3>Summary</h3>
+            <div class="summary-grid">
+                <div>
+                    <strong>Profiling Duration:</strong>
+                    <span id="summary-duration">--</span> seconds
+                </div>
+                <div>
+                    <strong>Bottlenecks Found:</strong>
+                    <span id="summary-bottlenecks">0</span>
+                </div>
+                <div>
+                    <strong>Anomalies:</strong>
+                    <span id="summary-anomalies">0</span>
+                </div>
+                <div>
+                    <strong>Deadlock Risk:</strong>
+                    <span id="summary-deadlock" class="badge badge-safe">Safe</span>
+                </div>
             </div>
         </div>
 
-        <!-- Predicted Speedup -->
+        <!-- Bottlenecks -->
         <div class="card">
-            <h2>Predicted Optimization Impact</h2>
-            <div id="speedupContent">
-                <p>Calculating predicted speedup...</p>
+            <h3>Detected Bottlenecks</h3>
+            <div id="bottlenecksList" class="bottlenecks-list">
+                <p class="text-muted">No bottlenecks detected</p>
+            </div>
+        </div>
+
+        <!-- Anomalies -->
+        <div class="card">
+            <h3>Security Anomalies</h3>
+            <div id="anomaliesList" class="anomalies-list">
+                <p class="text-muted">No anomalies detected</p>
+            </div>
+        </div>
+
+        <!-- Deadlock Info -->
+        <div class="card">
+            <h3>Deadlock Analysis</h3>
+            <div id="deadlockInfo">
+                <p class="text-muted">No deadlock risk detected</p>
             </div>
         </div>
 
         <!-- Recommendations -->
         <div class="card">
-            <h2>Optimization Recommendations</h2>
-            <div id="recommendationsContent">
-                <p>Generating recommendations...</p>
+            <h3>Optimization Recommendations</h3>
+            <div id="recommendationsList" class="recommendations-list">
+                <p class="text-muted">Loading recommendations...</p>
             </div>
         </div>
 
-        <!-- Before/After Comparison -->
+        <!-- Export -->
         <div class="card">
-            <h2>Before/After Comparison</h2>
+            <button id="exportBtn" class="btn btn-secondary">Export Results as JSON</button>
+            <button id="backBtn" class="btn btn-secondary" style="margin-left: 10px;">Back to Home</button>
+        </div>
+    </div>
+
+    <script>
+        async function loadResults() {
+            // Get result ID from URL
+            const resultId = window.location.pathname.split('/').pop();
+            
+            if (!resultId || resultId === 'results') {
+                // Load sample results
+                displaySampleResults();
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/results/${resultId}`);
+                if (response.ok) {
+                    const result = await response.json();
+                    displayResults(result);
+                } else {
+                    displaySampleResults();
+                }
+            } catch (e) {
+                displaySampleResults();
+            }
+        }
+
+        function displaySampleResults() {
+            const sampleResult = {
+                duration: 10,
+                bottlenecks: [
+                    { type: 'CPU', severity: 'high', message: 'High CPU usage (avg 72%)', duration: 5.2 },
+                    { type: 'Memory', severity: 'medium', message: 'Memory pressure detected', duration: 3.1 }
+                ],
+                anomalies: [],
+                deadlock_risk: false,
+                recommendations: [
+                    {
+                        bottleneck_type: 'CPU',
+                        phase_type: 'cpu_bound',
+                        predicted_speedup: 1.5,
+                        suggestions: [
+                            'Consider parallelization using multiprocessing',
+                            'Profile code with cProfile to identify hotspots',
+                            'Use NumPy/Cython for computational tasks'
+                        ]
+                    },
+                    {
+                        bottleneck_type: 'Memory',
+                        phase_type: 'memory_bound',
+                        predicted_speedup: 1.3,
+                        suggestions: [
+                            'Optimize data structures to reduce memory footprint',
+                            'Use generators instead of lists for large datasets',
+                            'Implement memory pooling for frequent allocations'
+                        ]
+                    }
+                ]
+            };
+            displayResults(sampleResult);
+        }
+
+        function displayResults(result) {
+            // Summary
+            document.getElementById('summary-duration').textContent = result.duration;
+            document.getElementById('summary-bottlenecks').textContent = result.bottlenecks?.length || 0;
+            document.getElementById('summary-anomalies').textContent = result.anomalies?.length || 0;
+            document.getElementById('summary-deadlock').textContent = result.deadlock_risk ? 'At Risk' : 'Safe';
+            document.getElementById('summary-deadlock').className = result.deadlock_risk ? 'badge badge-danger' : 'badge badge-safe';
+
+            // Alerts
+            const alertsSection = document.getElementById('alertsSection');
+            const alerts = [];
+            if (result.deadlock_risk) {
+                alerts.push({ type: 'danger', message: '⚠️ Deadlock risk detected' });
+            }
+            if (result.anomalies?.length > 0) {
+                alerts.push({ type: 'warning', message: `🔍 ${result.anomalies.length} anomal${result.anomalies.length > 1 ? 'ies' : 'y'} detected` });
+            }
+            if (alerts.length > 0) {
+                alertsSection.innerHTML = alerts.map(a => 
+                    `<div class="alert alert-${a.type}">${a.message}</div>`
+                ).join('');
+            }
+
+            // Bottlenecks
+            const bottlenecksList = document.getElementById('bottlenecksList');
+            if (result.bottlenecks?.length > 0) {
+                bottlenecksList.innerHTML = result.bottlenecks.map(b => `
+                    <div class="bottleneck-item ${b.severity}">
+                        <div class="bottleneck-type">${b.type}</div>
+                        <div class="bottleneck-message">${b.message}</div>
+                        <div class="bottleneck-duration">Duration: ${b.duration?.toFixed(1) || '--'}s</div>
+                    </div>
+                `).join('');
+            }
+
+            // Anomalies
+            const anomaliesList = document.getElementById('anomaliesList');
+            if (result.anomalies?.length > 0) {
+                anomaliesList.innerHTML = result.anomalies.map((a, i) => `
+                    <div class="alert alert-warning">
+                        Sample ${i}: ${a.message || 'Anomaly detected'}
+                    </div>
+                `).join('');
+            }
+
+            // Deadlock Info
+            const deadlockInfo = document.getElementById('deadlockInfo');
+            if (result.deadlock_risk) {
+                deadlockInfo.innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>Deadlock Detected!</strong>
+                        <p>Found ${result.deadlock_cycles?.length || 0} cycle(s) in the wait-for graph.</p>
+                        <p>Recommendations: Implement lock timeouts, use lock-free data structures, or review thread synchronization.</p>
+                    </div>
+                `;
+            }
+
+            // Recommendations
+            const recsList = document.getElementById('recommendationsList');
+            if (result.recommendations?.length > 0) {
+                recsList.innerHTML = result.recommendations.map((r, i) => `
+                    <div class="recommendation-card">
+                        <div class="rec-header">
+                            <span class="rec-type">${r.bottleneck_type || r.phase_type}</span>
+                            <span class="rec-speedup">${r.predicted_speedup?.toFixed(1) || '1.0'}x speedup</span>
+                        </div>
+                        <div class="rec-suggestions">
+                            ${r.suggestions?.map(s => `<li>${s}</li>`).join('') || '<li>No suggestions available</li>'}
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            const resultId = window.location.pathname.split('/').pop();
+            fetch(`/api/results/${resultId}`)
+                .then(r => r.json())
+                .then(data => {
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+                    link.download = `phasesnoel-results-${resultId}.json`;
+                    link.click();
+                });
+        });
+
+        document.getElementById('backBtn').addEventListener('click', () => {
+            window.location.href = '/';
+        });
+
+        window.addEventListener('load', loadResults);
+    </script>
+</body>
+</html>
             <div id="comparisonContent">
                 <p>Comparison data will appear here after optimization.</p>
             </div>
@@ -124,13 +317,13 @@
                     const speedupResponse = await fetch('/api/predict-speedup', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ features: features })
+                        body: JSON.stringify({ metrics: metrics })
                     });
 
                     const speedupData = await speedupResponse.json();
                     
                     if (speedupData.status === 'success') {
-                        const avgSpeedup = speedupData.speedup.reduce((a, b) => a + b, 0) / speedupData.speedup.length;
+                        const avgSpeedup = speedupData.average_speedup || 1.0;
                         const improvement = (avgSpeedup - 1) * 100;
 
                         document.getElementById('speedupContent').innerHTML = `
@@ -160,21 +353,38 @@
                     `;
                 }
 
-                // Generate recommendations
-                const recommendations = generateRecommendations(metrics, dominantPhase);
-                let recommendationsHTML = '';
-                recommendations.forEach(rec => {
-                    recommendationsHTML += `
-                        <div class="recommendation-card">
-                            <h4>${rec.title}</h4>
-                            <p>${rec.description}</p>
-                            ${rec.impact ? `<p class="predicted-impact">Expected Impact: ${rec.impact}</p>` : ''}
-                        </div>
-                    `;
-                });
-
-                document.getElementById('recommendationsContent').innerHTML = recommendationsHTML || 
-                    '<p>No specific recommendations at this time.</p>';
+                // Fetch recommendations from API
+                try {
+                    const recResponse = await fetch('/api/recommendations', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ metrics: metrics })
+                    });
+                    
+                    const recData = await recResponse.json();
+                    if (recData.status === 'success' && recData.results && recData.results.recommendations) {
+                        displayRecommendations(recData.results.recommendations);
+                    } else {
+                        // Fallback to rule-based recommendations
+                        const recommendations = generateRecommendations(metrics, dominantPhase);
+                        displayRecommendations(recommendations.map(r => ({
+                            phase_type: dominantPhase,
+                            recommendations: [r.description],
+                            predicted_speedup: 1.2,
+                            predicted_improvement_pct: 20
+                        })));
+                    }
+                } catch (error) {
+                    console.error('Error fetching recommendations:', error);
+                    const recommendations = generateRecommendations(metrics, dominantPhase);
+                    displayRecommendations(recommendations.map(r => ({
+                        phase_type: dominantPhase,
+                        recommendations: [r.description],
+                        predicted_speedup: 1.2,
+                        predicted_improvement_pct: 20
+                    })));
+                }
+                // This will be handled by displayRecommendations function
 
             } catch (error) {
                 document.getElementById('summaryContent').innerHTML = `
@@ -232,6 +442,34 @@
             }
 
             return recommendations;
+        }
+
+        function displayRecommendations(recommendations) {
+            let recommendationsHTML = '';
+            
+            if (!recommendations || recommendations.length === 0) {
+                recommendationsHTML = '<p>No specific recommendations at this time.</p>';
+            } else {
+                recommendations.forEach(rec => {
+                    const phaseType = rec.phase_type || 'unknown';
+                    const speedup = rec.predicted_speedup || 1.0;
+                    const improvement = rec.predicted_improvement_pct || 0;
+                    const recs = rec.recommendations || [];
+                    
+                    recommendationsHTML += `
+                        <div class="recommendation-card">
+                            <h4>Phase: ${phaseType.replace('_', ' ').toUpperCase()}</h4>
+                            <p><strong>Predicted Speedup:</strong> ${speedup.toFixed(2)}x (${improvement > 0 ? '+' : ''}${improvement.toFixed(1)}% improvement)</p>
+                            <h5>Recommendations:</h5>
+                            <ul>
+                                ${recs.map(r => `<li>${r}</li>`).join('')}
+                            </ul>
+                        </div>
+                    `;
+                });
+            }
+            
+            document.getElementById('recommendationsContent').innerHTML = recommendationsHTML;
         }
 
         // Load results on page load

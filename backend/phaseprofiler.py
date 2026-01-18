@@ -1,6 +1,7 @@
 """
-Mono profiler script for PhaseProfiler.
-Collects metrics (CPU, I/O, memory), detects phases, and saves to CSV.
+Phase Profiler for PhaseSentinel.
+Collects metrics (CPU, I/O, memory), detects phases using rule-based logic,
+and classifies bottlenecks (cpu_bound, io_bound, memory_bound, idle, mixed).
 """
 
 import psutil
@@ -11,14 +12,20 @@ import os
 import subprocess
 from datetime import datetime
 import argparse
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-class PhaseProfiler:
+class PhasProfiler:
     """Profiles system metrics and detects execution phases."""
     
-    def __init__(self, output_file='training_data.csv'):
+    def __init__(self, output_file='training_data.csv', sample_interval=0.5):
         self.output_file = output_file
         self.metrics = []
+        self.phases = []
+        self.sample_interval = sample_interval
         self.process = None
         
     def collect_metrics(self, duration=60, interval=1):
@@ -81,27 +88,92 @@ class PhaseProfiler:
             time.sleep(interval)
         
         print(f"Collection complete. Collected {sample_count} samples.")
-        return self.metrics
+        return {
+            'phases': self._segment_phases(),
+            'timeline': self.metrics,
+            'summary': self._generate_summary(),
+            'metrics': self.metrics
+        }
+    
+    def profile(self, duration=10, pid=None):
+        """Flask-compatible profile() method."""
+        return self.collect_metrics(duration=duration, interval=self.sample_interval)
+    
+    def _segment_phases(self):
+        """Segment metrics into continuous phases of the same type."""
+        if not self.metrics:
+            return []
+        phases = []
+        current_phase = {
+            'start': self.metrics[0]['timestamp'],
+            'type': self.metrics[0]['phase'],
+            'metrics': [self.metrics[0]]
+        }
+        for metric in self.metrics[1:]:
+            if metric['phase'] == current_phase['type']:
+                current_phase['metrics'].append(metric)
+            else:
+                current_phase['end'] = current_phase['metrics'][-1]['timestamp']
+                current_phase['duration'] = current_phase['end'] - current_phase['start']
+                cpus = [m['cpu_percent'] for m in current_phase['metrics']]
+                current_phase['avg_cpu'] = sum(cpus) / len(cpus)
+                current_phase['max_cpu'] = max(cpus)
+                phases.append(current_phase)
+                current_phase = {
+                    'start': metric['timestamp'],
+                    'type': metric['phase'],
+                    'metrics': [metric]
+                }
+        if current_phase['metrics']:
+            current_phase['end'] = current_phase['metrics'][-1]['timestamp']
+            current_phase['duration'] = current_phase['end'] - current_phase['start']
+            cpus = [m['cpu_percent'] for m in current_phase['metrics']]
+            current_phase['avg_cpu'] = sum(cpus) / len(cpus)
+            current_phase['max_cpu'] = max(cpus)
+            phases.append(current_phase)
+        return phases
+    
+    def _generate_summary(self):
+        """Generate summary statistics."""
+        if not self.metrics:
+            return {}
+        cpus = [m['cpu_percent'] for m in self.metrics]
+        mems = [m['memory_percent'] for m in self.metrics]
+        return {
+            'avg_cpu': sum(cpus) / len(cpus),
+            'max_cpu': max(cpus),
+            'avg_memory_percent': sum(mems) / len(mems),
+            'max_memory_percent': max(mems),
+            'total_samples': len(self.metrics)
+        }
     
     def detect_phase(self, cpu_percent, memory_percent, io_rate):
         """
-        Simple heuristic-based phase detection.
+        Rule-based phase detection and bottleneck classification.
         
+        Args:
+            cpu_percent: CPU usage percentage
+            memory_percent: Memory usage percentage
+            io_rate: I/O rate in MB/s
+            
         Returns:
             Phase label: 'cpu_bound', 'io_bound', 'memory_bound', 'idle', or 'mixed'
         """
-        # Thresholds
-        cpu_threshold = 50.0
-        memory_threshold = 70.0
-        io_threshold = 10.0  # MB/s
+        # Thresholds for phase detection
+        cpu_threshold = 70.0  # CPU > 70% indicates CPU-bound
+        memory_threshold = 70.0  # Memory > 70% indicates memory-bound
+        io_threshold = 10.0  # I/O > 10 MB/s indicates I/O-bound
+        idle_cpu_threshold = 10.0
+        idle_memory_threshold = 30.0
         
-        if cpu_percent < 10 and memory_percent < 30:
+        # Rule-based classification
+        if cpu_percent < idle_cpu_threshold and memory_percent < idle_memory_threshold:
             return 'idle'
-        elif cpu_percent > cpu_threshold and io_rate < io_threshold:
+        elif cpu_percent > cpu_threshold and io_rate < io_threshold and memory_percent < memory_threshold:
             return 'cpu_bound'
         elif io_rate > io_threshold and cpu_percent < cpu_threshold:
             return 'io_bound'
-        elif memory_percent > memory_threshold:
+        elif memory_percent > memory_threshold and cpu_percent < cpu_threshold:
             return 'memory_bound'
         else:
             return 'mixed'

@@ -3,51 +3,210 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PhaseProfiler - Dashboard</title>
+    <title>PhaseSentinel - Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>📊 PhaseProfiler Dashboard</h1>
-            <p>Real-time metrics, phase detection, and bottleneck analysis</p>
-        </header>
-
-        <nav>
-            <ul>
+    <nav class="navbar">
+        <div class="nav-content">
+            <div class="logo">⚡ PhaseSentinel</div>
+            <ul class="nav-links">
                 <li><a href="/">Home</a></li>
                 <li><a href="/dashboard" class="active">Dashboard</a></li>
                 <li><a href="/results">Results</a></li>
             </ul>
-        </nav>
+        </div>
+    </nav>
 
-        <!-- Metrics Summary Cards -->
-        <div class="card">
-            <h2>System Metrics</h2>
-            <div class="metrics-grid">
-                <div class="metric-card">
-                    <h4>Average CPU Usage</h4>
-                    <div class="value" id="metric-cpu">0.0</div>
-                    <div class="unit">%</div>
-                </div>
-                <div class="metric-card">
-                    <h4>Average Memory Usage</h4>
-                    <div class="value" id="metric-memory">0.0</div>
-                    <div class="unit">%</div>
-                </div>
-                <div class="metric-card">
-                    <h4>Average I/O Rate</h4>
-                    <div class="value" id="metric-io">0.0</div>
-                    <div class="unit">MB/s</div>
-                </div>
-                <div class="metric-card">
-                    <h4>Total Samples</h4>
-                    <div class="value" id="metric-samples">0</div>
-                    <div class="unit">samples</div>
-                </div>
+    <div class="container">
+        <h1>Dashboard</h1>
+        <p class="subtitle">Real-time metrics and phase analysis</p>
+
+        <!-- Metrics Summary -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-label">Avg CPU</div>
+                <div class="metric-value" id="metric-cpu">--</div>
+                <div class="metric-unit">%</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Peak CPU</div>
+                <div class="metric-value" id="metric-cpu-peak">--</div>
+                <div class="metric-unit">%</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Avg Memory</div>
+                <div class="metric-value" id="metric-mem">--</div>
+                <div class="metric-unit">%</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Samples</div>
+                <div class="metric-value" id="metric-samples">--</div>
+                <div class="metric-unit">count</div>
             </div>
         </div>
+
+        <!-- Charts -->
+        <div class="charts-grid">
+            <div class="chart-card">
+                <h3>CPU & Memory Timeline</h3>
+                <canvas id="metricsChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>Phase Distribution</h3>
+                <canvas id="phaseChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Bottlenecks -->
+        <div class="card">
+            <h3>Bottlenecks Detected</h3>
+            <div id="bottlenecksList" class="bottlenecks-list">
+                <p class="text-muted">No bottlenecks detected</p>
+            </div>
+        </div>
+
+        <!-- Load Sample Data Button -->
+        <div class="card">
+            <button id="loadSampleBtn" class="btn btn-secondary">Load Sample Data</button>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+    <script>
+        let metricsChart, phaseChart;
+
+        document.getElementById('loadSampleBtn').addEventListener('click', loadSampleData);
+
+        async function loadSampleData() {
+            const sampleMetrics = generateSampleMetrics();
+            displayMetrics(sampleMetrics);
+            displayPhases(sampleMetrics);
+        }
+
+        function generateSampleMetrics() {
+            const metrics = [];
+            for (let i = 0; i < 60; i++) {
+                const t = i / 10;
+                const cpu = 30 + 40 * Math.sin(t) + Math.random() * 15;
+                const mem = 40 + 20 * Math.sin(t * 0.5) + Math.random() * 10;
+                metrics.push({
+                    timestamp: i * 0.5,
+                    cpu_percent: Math.max(0, Math.min(100, cpu)),
+                    memory_percent: Math.max(0, Math.min(100, mem)),
+                    phase: cpu > 70 ? 'cpu_bound' : mem > 60 ? 'memory_bound' : 'idle'
+                });
+            }
+            return metrics;
+        }
+
+        function displayMetrics(metrics) {
+            const cpus = metrics.map(m => m.cpu_percent);
+            const mems = metrics.map(m => m.memory_percent);
+            
+            document.getElementById('metric-cpu').textContent = (cpus.reduce((a,b) => a+b) / cpus.length).toFixed(1);
+            document.getElementById('metric-cpu-peak').textContent = Math.max(...cpus).toFixed(1);
+            document.getElementById('metric-mem').textContent = (mems.reduce((a,b) => a+b) / mems.length).toFixed(1);
+            document.getElementById('metric-samples').textContent = metrics.length;
+            
+            // Update chart
+            if (metricsChart) metricsChart.destroy();
+            const ctx = document.getElementById('metricsChart').getContext('2d');
+            metricsChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: metrics.map(m => m.timestamp.toFixed(1)),
+                    datasets: [
+                        {
+                            label: 'CPU %',
+                            data: cpus,
+                            borderColor: '#64ffda',
+                            backgroundColor: 'rgba(100, 255, 218, 0.1)',
+                            tension: 0.3,
+                            fill: true
+                        },
+                        {
+                            label: 'Memory %',
+                            data: mems,
+                            borderColor: '#ff6b6b',
+                            backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                            tension: 0.3,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#94a3b8', font: { size: 12 } }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: '#1e293b' },
+                            ticks: { color: '#94a3b8' },
+                            max: 100
+                        },
+                        x: {
+                            grid: { color: '#1e293b' },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function displayPhases(metrics) {
+            const phaseCounts = {};
+            metrics.forEach(m => {
+                phaseCounts[m.phase] = (phaseCounts[m.phase] || 0) + 1;
+            });
+            
+            if (phaseChart) phaseChart.destroy();
+            const ctx = document.getElementById('phaseChart').getContext('2d');
+            phaseChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(phaseCounts),
+                    datasets: [{
+                        data: Object.values(phaseCounts),
+                        backgroundColor: ['#64ffda', '#ff6b6b', '#feca57', '#48dbfb'],
+                        borderColor: '#0a192f',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#94a3b8', font: { size: 12 } }
+                        }
+                    }
+                }
+            });
+            
+            // Display bottlenecks
+            const bottlenecksList = document.getElementById('bottlenecksList');
+            const bottlenecks = [
+                { type: 'CPU', severity: 'high', message: 'High CPU usage detected (avg 65%)' },
+                { type: 'Memory', severity: 'medium', message: 'Memory usage at 58%' }
+            ];
+            bottlenecksList.innerHTML = bottlenecks.map(b => `
+                <div class="bottleneck-item ${b.severity}">
+                    <span class="bottleneck-type">${b.type}</span>
+                    <span class="bottleneck-message">${b.message}</span>
+                </div>
+            `).join('');
+        }
+
+        // Load on page load
+        window.addEventListener('load', loadSampleData);
+    </script>
+</body>
+</html>
 
         <!-- Metrics Timeline Chart -->
         <div class="card">
@@ -81,6 +240,24 @@
             <div class="chart-container" style="height: 300px;">
                 <canvas id="bottleneckChart"></canvas>
             </div>
+        </div>
+
+        <!-- Deadlock Detection -->
+        <div class="card">
+            <h2>🔒 Deadlock Risk Detection</h2>
+            <div id="deadlockAlerts" class="alert-container">
+                <p>Analyzing deadlock risks...</p>
+            </div>
+            <button onclick="checkDeadlocks()" class="btn" style="margin-top: 10px;">Check for Deadlocks</button>
+        </div>
+
+        <!-- Security Anomaly Detection -->
+        <div class="card">
+            <h2>🚨 Security Anomaly Detection</h2>
+            <div id="anomalyAlerts" class="alert-container">
+                <p>Scanning for security anomalies...</p>
+            </div>
+            <button onclick="checkAnomalies()" class="btn" style="margin-top: 10px;">Scan for Anomalies</button>
         </div>
 
         <!-- Refresh Button -->
@@ -130,18 +307,18 @@
                         const classifyResponse = await fetch('/api/classify', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ features: features })
+                            body: JSON.stringify({ metrics: metrics })
                         });
 
                         const classifyData = await classifyResponse.json();
                         if (classifyData.status === 'success') {
-                            // Create bottleneck data structure
-                            const bottlenecks = classifyData.predictions.map((pred, idx) => ({
-                                type: pred,
-                                severity: classifyData.probabilities ? 
-                                    Math.max(...classifyData.probabilities[idx]) * 10 : 5,
-                                description: `Detected ${pred} phase in sample ${idx + 1}`,
-                                recommendation: getRecommendation(pred)
+                            // Create bottleneck data structure from classifications
+                            const bottlenecks = classifyData.classifications.map((cls, idx) => ({
+                                type: cls.phase,
+                                severity: cls.cpu_percent > 80 || cls.memory_percent > 80 ? 8 : 
+                                         cls.cpu_percent > 50 || cls.memory_percent > 50 ? 5 : 3,
+                                description: `Detected ${cls.phase} phase - CPU: ${cls.cpu_percent.toFixed(1)}%, Memory: ${cls.memory_percent.toFixed(1)}%`,
+                                recommendation: getRecommendation(cls.phase)
                             }));
 
                             renderBottleneckList('bottleneckList', bottlenecks);
@@ -174,6 +351,106 @@
                 'idle': 'System is idle - no optimization needed'
             };
             return recommendations[phase] || 'Review code for optimization opportunities';
+        }
+
+        // Deadlock detection
+        async function checkDeadlocks() {
+            const container = document.getElementById('deadlockAlerts');
+            container.innerHTML = '<p>Checking for deadlock risks...</p>';
+            
+            try {
+                const response = await fetch('/api/deadlock', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.status === 'success' && data.analysis) {
+                    const analysis = data.analysis;
+                    let html = '';
+                    
+                    if (analysis.cycles_detected === 0) {
+                        html = '<div class="alert alert-success">✅ No deadlock risks detected</div>';
+                    } else {
+                        html = `<div class="alert alert-warning">
+                            <strong>⚠️ ${analysis.cycles_detected} potential deadlock(s) detected!</strong>
+                        </div>`;
+                        
+                        analysis.cycles.forEach(cycle => {
+                            html += `<div class="alert alert-error">
+                                <strong>Risk Level: ${cycle.risk_level.toUpperCase()}</strong><br>
+                                ${cycle.description}
+                            </div>`;
+                        });
+                        
+                        if (analysis.recommendations) {
+                            html += '<h4>Recommendations:</h4>';
+                            analysis.recommendations.forEach(rec => {
+                                html += `<div class="alert alert-${rec.type === 'critical' ? 'error' : rec.type === 'warning' ? 'warning' : 'info'}">
+                                    ${rec.message}
+                                </div>`;
+                            });
+                        }
+                    }
+                    
+                    container.innerHTML = html;
+                }
+            } catch (error) {
+                container.innerHTML = `<div class="alert alert-error">Error: ${error.message}</div>`;
+            }
+        }
+
+        // Anomaly detection
+        async function checkAnomalies() {
+            const container = document.getElementById('anomalyAlerts');
+            container.innerHTML = '<p>Scanning for security anomalies...</p>';
+            
+            try {
+                const metricsResponse = await fetch('/api/metrics');
+                const metricsData = await metricsResponse.json();
+                
+                if (metricsData.status !== 'success' || !metricsData.metrics) {
+                    container.innerHTML = '<div class="alert alert-warning">No metrics data available</div>';
+                    return;
+                }
+                
+                const response = await fetch('/api/anomaly', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ metrics: metricsData.metrics })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success' && data.results) {
+                    const results = data.results;
+                    let html = '';
+                    
+                    if (results.anomalies_detected === 0) {
+                        html = '<div class="alert alert-success">✅ No security anomalies detected</div>';
+                    } else {
+                        html = `<div class="alert alert-warning">
+                            <strong>🚨 ${results.anomalies_detected} anomaly/anomalies detected!</strong>
+                        </div>`;
+                    }
+                    
+                    if (results.alerts) {
+                        results.alerts.forEach(alert => {
+                            const alertClass = alert.type === 'warning' ? 'alert-warning' : 
+                                             alert.type === 'error' ? 'alert-error' : 'alert-info';
+                            html += `<div class="alert ${alertClass}">
+                                <strong>${alert.type.toUpperCase()}:</strong> ${alert.message}
+                                ${alert.severity ? `<br><small>Severity: ${alert.severity}</small>` : ''}
+                            </div>`;
+                        });
+                    }
+                    
+                    if (results.warning) {
+                        html += `<div class="alert alert-info">ℹ️ ${results.warning}</div>`;
+                    }
+                    
+                    container.innerHTML = html;
+                }
+            } catch (error) {
+                container.innerHTML = `<div class="alert alert-error">Error: ${error.message}</div>`;
+            }
         }
 
         // Initial load

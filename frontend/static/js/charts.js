@@ -1,12 +1,11 @@
 /**
- * Chart.js scripts for PhaseProfiler dashboard
- * Handles phase timeline, bottleneck visualization, and metrics charts
+ * PhaseSentinel - Charts Integration
+ * Chart.js integration for real-time metrics visualization
  */
 
 // Global chart instances
 let metricsChart = null;
 let phaseChart = null;
-let bottleneckChart = null;
 
 /**
  * Initialize metrics timeline chart
@@ -15,7 +14,7 @@ function initMetricsChart(canvasId, metricsData) {
     const ctx = document.getElementById(canvasId);
     if (!ctx) return;
 
-    const labels = metricsData.map(m => m.timestamp || m.sample_id);
+    const labels = metricsData.map((m, i) => (m.timestamp || i * 0.5).toFixed(1));
     const cpuData = metricsData.map(m => parseFloat(m.cpu_percent) || 0);
     const memoryData = metricsData.map(m => parseFloat(m.memory_percent) || 0);
 
@@ -31,23 +30,278 @@ function initMetricsChart(canvasId, metricsData) {
                 {
                     label: 'CPU Usage (%)',
                     data: cpuData,
-                    borderColor: 'rgb(102, 126, 234)',
-                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                    tension: 0.4,
-                    fill: true
+                    borderColor: '#64ffda',
+                    backgroundColor: 'rgba(100, 255, 218, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    fill: true,
+                    pointRadius: 2,
+                    pointBackgroundColor: '#64ffda',
+                    pointBorderColor: '#64ffda'
                 },
                 {
                     label: 'Memory Usage (%)',
                     data: memoryData,
-                    borderColor: 'rgb(118, 75, 162)',
-                    backgroundColor: 'rgba(118, 75, 162, 0.1)',
-                    tension: 0.4,
-                    fill: true
+                    borderColor: '#ff6b6b',
+                    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    fill: true,
+                    pointRadius: 2,
+                    pointBackgroundColor: '#ff6b6b',
+                    pointBorderColor: '#ff6b6b'
                 }
             ]
         },
         options: {
             responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    labels: {
+                        color: '#94a3b8',
+                        font: { size: 12, weight: '500' },
+                        padding: 15
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    grid: {
+                        color: 'rgba(30, 41, 59, 0.5)'
+                    },
+                    ticks: {
+                        color: '#94a3b8'
+                    }
+                },
+                x: {
+                    grid: {
+                        color: 'rgba(30, 41, 59, 0.5)'
+                    },
+                    ticks: {
+                        color: '#94a3b8'
+                    }
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Initialize phase distribution chart
+ */
+function initPhaseChart(canvasId, phaseCounts) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+
+    if (phaseChart) {
+        phaseChart.destroy();
+    }
+
+    const colors = {
+        'cpu_bound': '#64ffda',
+        'io_bound': '#ff6b6b',
+        'memory_bound': '#feca57',
+        'idle': '#48dbfb',
+        'mixed': '#a29bfe'
+    };
+
+    const labels = Object.keys(phaseCounts);
+    const data = Object.values(phaseCounts);
+    const backgroundColors = labels.map(l => colors[l] || '#64ffda');
+
+    phaseChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels.map(l => l.replace('_', ' ')),
+            datasets: [{
+                data: data,
+                backgroundColor: backgroundColors,
+                borderColor: '#0a192f',
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    labels: {
+                        color: '#94a3b8',
+                        font: { size: 12 },
+                        padding: 15
+                    }
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Fetch metrics from API
+ */
+async function fetchMetrics(resultId) {
+    try {
+        const response = await fetch(`/api/results/${resultId}`);
+        if (response.ok) {
+            return await response.json();
+        }
+    } catch (e) {
+        console.error('Error fetching metrics:', e);
+    }
+    return null;
+}
+
+/**
+ * Display metrics summary
+ */
+function displayMetricsSummary(metrics) {
+    if (!metrics || !metrics.timeline) return;
+
+    const cpus = metrics.timeline.map(m => m.cpu_percent);
+    const mems = metrics.timeline.map(m => m.memory_percent);
+
+    const avgCpu = cpus.reduce((a, b) => a + b, 0) / cpus.length;
+    const maxCpu = Math.max(...cpus);
+    const avgMem = mems.reduce((a, b) => a + b, 0) / mems.length;
+
+    const summaryEl = document.getElementById('metrics-summary');
+    if (summaryEl) {
+        summaryEl.innerHTML = `
+            <div class="metric-card">
+                <div class="metric-label">Avg CPU</div>
+                <div class="metric-value">${avgCpu.toFixed(1)}</div>
+                <div class="metric-unit">%</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Peak CPU</div>
+                <div class="metric-value">${maxCpu.toFixed(1)}</div>
+                <div class="metric-unit">%</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Avg Memory</div>
+                <div class="metric-value">${avgMem.toFixed(1)}</div>
+                <div class="metric-unit">%</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Samples</div>
+                <div class="metric-value">${metrics.timeline.length}</div>
+                <div class="metric-unit">count</div>
+            </div>
+        `;
+    }
+}
+
+/**
+ * Display bottlenecks
+ */
+function displayBottlenecks(metrics) {
+    if (!metrics || !metrics.bottlenecks) return;
+
+    const containerEl = document.getElementById('bottlenecks-container');
+    if (!containerEl) return;
+
+    if (metrics.bottlenecks.length === 0) {
+        containerEl.innerHTML = '<p class="text-muted">No bottlenecks detected</p>';
+        return;
+    }
+
+    const bottlenecksHTML = metrics.bottlenecks.map(b => `
+        <div class="bottleneck-item ${b.severity}">
+            <div class="bottleneck-type">${b.type}</div>
+            <div class="bottleneck-message">${b.message}</div>
+            <div class="bottleneck-duration">Duration: ${(b.duration || 0).toFixed(1)}s</div>
+        </div>
+    `).join('');
+
+    containerEl.innerHTML = bottlenecksHTML;
+}
+
+/**
+ * Display recommendations
+ */
+function displayRecommendations(metrics) {
+    if (!metrics || !metrics.recommendations) return;
+
+    const containerEl = document.getElementById('recommendations-container');
+    if (!containerEl) return;
+
+    if (metrics.recommendations.length === 0) {
+        containerEl.innerHTML = '<p class="text-muted">No recommendations available</p>';
+        return;
+    }
+
+    const recsHTML = metrics.recommendations.map(r => `
+        <div class="recommendation-card">
+            <div class="rec-header">
+                <span class="rec-type">${r.bottleneck_type || r.phase_type}</span>
+                <span class="rec-speedup">${(r.predicted_speedup || 1.0).toFixed(1)}x speedup</span>
+            </div>
+            <div class="rec-suggestions">
+                ${(r.suggestions || []).map(s => `<li>${s}</li>`).join('') || '<li>No specific suggestions</li>'}
+            </div>
+        </div>
+    `).join('');
+
+    containerEl.innerHTML = recsHTML;
+}
+
+/**
+ * Initialize dashboard on page load
+ */
+function initDashboard() {
+    const resultId = extractResultId();
+    if (!resultId) return;
+
+    fetchMetrics(resultId).then(metrics => {
+        if (!metrics) return;
+
+        displayMetricsSummary(metrics);
+        displayBottlenecks(metrics);
+        displayRecommendations(metrics);
+
+        if (metrics.timeline && metrics.timeline.length > 0) {
+            initMetricsChart('metricsChart', metrics.timeline);
+        }
+
+        if (metrics.phases && metrics.phases.length > 0) {
+            const phaseCounts = {};
+            metrics.phases.forEach(p => {
+                phaseCounts[p.type] = (phaseCounts[p.type] || 0) + 1;
+            });
+            initPhaseChart('phaseChart', phaseCounts);
+        }
+    });
+}
+
+/**
+ * Extract result ID from URL
+ */
+function extractResultId() {
+    const pathParts = window.location.pathname.split('/');
+    return pathParts[pathParts.length - 1];
+}
+
+/**
+ * Export results as JSON
+ */
+function exportResults(metrics) {
+    const dataStr = JSON.stringify(metrics, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `phasesnoel-${Date.now()}.json`;
+    link.click();
+}
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDashboard);
+} else {
+    initDashboard();
+}
             maintainAspectRatio: false,
             plugins: {
                 title: {
