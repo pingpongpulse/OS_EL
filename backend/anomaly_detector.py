@@ -1,6 +1,6 @@
 """
 Security Anomaly Detector for PhaseSentinel.
-Placeholder implementation that loads anomaly_model.pkl if present.
+Updated implementation that loads anomaly_model (1).pkl with 5-feature compatibility.
 """
 
 import os
@@ -12,7 +12,11 @@ from datetime import datetime
 class AnomalyDetector:
     """Detects security anomalies using a pre-trained model."""
     
-    def __init__(self, model_path='models/anomaly_model.pkl'):
+    def __init__(self, model_path=None):
+        # Use absolute path based on module location
+        if model_path is None:
+            backend_dir = os.path.dirname(os.path.abspath(__file__))
+            model_path = os.path.join(backend_dir, 'models', 'anomaly_model (1).pkl')
         self.model_path = model_path
         self.model = None
         self.model_loaded = False
@@ -183,9 +187,7 @@ class AnomalyDetector:
                 float(metric.get('memory_percent', 0)),
                 float(metric.get('memory_used_gb', 0)),
                 float(metric.get('disk_read_mb', 0)),
-                float(metric.get('disk_write_mb', 0)),
-                float(metric.get('network_sent_mb', 0)),
-                float(metric.get('network_recv_mb', 0))
+                float(metric.get('disk_write_mb', 0))
             ]
             features.append(feature_vector)
         
@@ -236,11 +238,11 @@ if __name__ == '__main__':
     # Test with sample data
     test_metrics = [
         {'cpu_percent': 10, 'memory_percent': 30, 'memory_used_gb': 2.0,
-         'disk_read_mb': 10, 'disk_write_mb': 5, 'network_sent_mb': 1, 'network_recv_mb': 1},
+         'disk_read_mb': 10, 'disk_write_mb': 5},
         {'cpu_percent': 98, 'memory_percent': 20, 'memory_used_gb': 1.5,
-         'disk_read_mb': 5, 'disk_write_mb': 2, 'network_sent_mb': 0.5, 'network_recv_mb': 0.5},
+         'disk_read_mb': 5, 'disk_write_mb': 2},
         {'cpu_percent': 15, 'memory_percent': 95, 'memory_used_gb': 8.0,
-         'disk_read_mb': 20, 'disk_write_mb': 15, 'network_sent_mb': 2, 'network_recv_mb': 2}
+         'disk_read_mb': 20, 'disk_write_mb': 15}
     ]
     
     results = detector.detect_anomalies(test_metrics)

@@ -3,124 +3,1412 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PhaseSentinel - Dashboard</title>
+    <title>PhaseSentinel - Cyberpunk Profiler</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        /* Cyberpunk theme */
+        :root {
+            --bg-dark: #0c1c33;
+            --primary: #64ffda;
+            --warning: #ffb86c;
+            --critical: #ff5555;
+            --accent: #bd93f9;
+            --text: #f8f8f2;
+            --text-secondary: #cdd3de;
+            --card-bg: rgba(25, 33, 48, 0.8);
+            --border-color: #64ffda;
+            --glow-primary: 0 0 10px rgba(100, 255, 218, 0.5);
+            --glow-warning: 0 0 10px rgba(255, 184, 108, 0.5);
+            --glow-critical: 0 0 10px rgba(255, 85, 85, 0.5);
+            --glow-accent: 0 0 10px rgba(189, 147, 249, 0.5);
+        }
+        
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text);
+            font-family: 'Fira Code', 'JetBrains Mono', monospace;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+            background-image: radial-gradient(rgba(100, 255, 218, 0.05) 1px, transparent 1px),
+                              radial-gradient(rgba(189, 147, 249, 0.05) 1px, transparent 1px);
+            background-size: 50px 50px;
+            background-position: 0 0, 25px 25px;
+        }
+        
+        .cyber-container {
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        /* Top bar controls */
+        .top-controls {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 0 15px rgba(100, 255, 218, 0.2);
+        }
+        
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .control-group input {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--accent);
+            color: var(--text);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-family: 'Fira Code', monospace;
+            flex: 1;
+            min-width: 300px;
+        }
+        
+        .btn {
+            background: var(--primary);
+            color: var(--bg-dark);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: 'Fira Code', monospace;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover {
+            box-shadow: var(--glow-primary);
+        }
+        
+        .btn-stop {
+            background: var(--critical);
+        }
+        
+        .btn-stop:hover {
+            box-shadow: var(--glow-critical);
+        }
+        
+        .status-indicator {
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        .status-idle {
+            background: #333;
+            color: #aaa;
+        }
+        
+        .status-running {
+            background: var(--primary);
+            color: var(--bg-dark);
+            animation: pulse 1.5s infinite;
+        }
+        
+        .status-error {
+            background: var(--critical);
+            color: white;
+            animation: pulse 0.5s infinite;
+        }
+        
+        /* Help Text */
+        .help-text {
+            margin-top: 10px;
+            font-size: 0.8rem;
+            color: var(--accent);
+            text-align: center;
+        }
+        
+        .help-text small {
+            font-family: 'Fira Code', monospace;
+            color: var(--primary);
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+        
+        /* Tab navigation */
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid var(--accent);
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            background: transparent;
+            border: none;
+            color: var(--text);
+            padding: 10px 20px;
+            cursor: pointer;
+            font-family: 'Fira Code', monospace;
+            font-size: 16px;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+        
+        .tab.active {
+            color: var(--primary);
+            border-bottom: 3px solid var(--primary);
+        }
+        
+        .tab:hover:not(.active) {
+            color: var(--accent);
+        }
+        
+        /* Tab content */
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* Card styles */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--accent);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .card h2 {
+            color: var(--accent);
+            margin-top: 0;
+            border-bottom: 1px solid var(--accent);
+            padding-bottom: 10px;
+        }
+        
+        /* System Context Card - visually de-emphasized */
+        .system-context {
+            background: rgba(15, 25, 40, 0.6); /* More de-emphasized */
+            border: 1px dashed var(--accent);
+            opacity: 0.8;
+        }
+        
+        .system-context h2::after {
+            content: " (System Context)";
+            color: var(--warning);
+            font-size: 12px;
+        }
+        
+        /* Metric cards */
+        .metric-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .metric-card {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--primary);
+            border-radius: 6px;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--primary);
+            margin: 5px 0;
+        }
+        
+        .metric-label {
+            font-size: 14px;
+            color: var(--accent);
+        }
+        
+        /* Phase badge */
+        .phase-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-size: 12px;
+            background: var(--primary);
+            color: var(--bg-dark);
+            animation: glow 2s infinite alternate;
+        }
+        
+        @keyframes glow {
+            from { box-shadow: 0 0 5px currentColor; }
+            to { box-shadow: 0 0 20px currentColor; }
+        }
+        
+        /* Charts */
+        .chart-container {
+            height: 300px;
+            margin: 20px 0;
+        }
+        
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        
+        /* Alerts */
+        .alert {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            border-left: 4px solid;
+        }
+        
+        .alert-warning {
+            background: rgba(255, 184, 108, 0.1);
+            border-color: var(--warning);
+            color: var(--warning);
+        }
+        
+        .alert-critical {
+            background: rgba(255, 85, 85, 0.1);
+            border-color: var(--critical);
+            color: var(--critical);
+        }
+        
+        .alert-info {
+            background: rgba(100, 255, 218, 0.1);
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+        
+        /* Glow effect for alerts */
+        .glow {
+            animation: glow 2s infinite alternate;
+        }
+        
+        /* Tree view */
+        .tree-view {
+            max-height: 300px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid var(--accent);
+        }
+        
+        /* Phase timeline */
+        .phase-timeline {
+            height: 100px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+            border: 1px solid var(--accent);
+        }
+        
+        /* Deadlock graph */
+        .deadlock-graph {
+            height: 400px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+            border: 1px solid var(--accent);
+        }
+        
+        /* Process table */
+        .process-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+        
+        .process-table th, .process-table td {
+            border: 1px solid var(--accent);
+            padding: 8px;
+            text-align: left;
+        }
+        
+        .process-table th {
+            background: rgba(100, 255, 218, 0.1);
+            color: var(--primary);
+        }
+        
+        /* Insight panel */
+        .insight-panel {
+            background: rgba(189, 147, 249, 0.1);
+            border: 1px solid var(--accent);
+            border-radius: 6px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        
+        /* Optimization card */
+        .optimization-card {
+            background: rgba(100, 255, 218, 0.1);
+            border: 1px solid var(--primary);
+            border-radius: 6px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+    </style>
 </head>
 <body>
-    <nav class="navbar">
+    <nav class="navbar" style="background: var(--bg-dark); border-bottom: 1px solid var(--primary);">
         <div class="nav-content">
             <div class="logo">⚡ PhaseSentinel</div>
             <ul class="nav-links">
-                <li><a href="/">Home</a></li>
-                <li><a href="/dashboard" class="active">Dashboard</a></li>
-                <li><a href="/results">Results</a></li>
+                <li><a href="/dashboard" class="active" style="color: var(--primary);">Dashboard</a></li>
             </ul>
         </div>
     </nav>
 
-    <div class="container">
-        <h1>Dashboard</h1>
-        <p class="subtitle">Real-time metrics and phase analysis</p>
-
-        <!-- Metrics Summary -->
-        <div class="metrics-grid">
-            <div class="metric-card">
-                <div class="metric-label">Avg CPU</div>
-                <div class="metric-value" id="metric-cpu">--</div>
-                <div class="metric-unit">%</div>
+    <div class="cyber-container">
+        <!-- Top Controls for Profiling -->
+        <div class="top-controls">
+            <div class="control-group">
+                <input type="text" id="programPath" placeholder="Enter program file path (e.g., ../backend/simulations/leaky.py)">
+                <input type="number" id="profilingDuration" placeholder="Duration (seconds)" min="1" max="300" value="60" style="width: 120px;">
+                <button id="startProfiling" class="btn">Start Profiling</button>
+                <button id="stopProfiling" class="btn btn-stop">Stop Profiling</button>
+                <div class="status-indicator status-idle" id="statusIndicator">Idle</div>
+                <div id="timerDisplay" style="margin-left: 10px; color: var(--primary); font-size: 14px; font-weight: bold; display: none;">Time left: --:--</div>
+                <div id="programInfo" style="margin-left: 10px; color: var(--accent); font-size: 14px;"></div>
             </div>
-            <div class="metric-card">
-                <div class="metric-label">Peak CPU</div>
-                <div class="metric-value" id="metric-cpu-peak">--</div>
-                <div class="metric-unit">%</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">Avg Memory</div>
-                <div class="metric-value" id="metric-mem">--</div>
-                <div class="metric-unit">%</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">Samples</div>
-                <div class="metric-value" id="metric-samples">--</div>
-                <div class="metric-unit">count</div>
+            <div class="help-text">
+                <small>Try: ../backend/simulations/leaky.py | ../backend/simulations/fork_bomb.py | ../backend/simulations/miner_sim.py | Duration: 1-300 seconds</small>
             </div>
         </div>
 
-        <!-- Charts -->
-        <div class="charts-grid">
-            <div class="chart-card">
-                <h3>CPU & Memory Timeline</h3>
-                <canvas id="metricsChart"></canvas>
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" data-tab="overview">Overview & System Context</button>
+            <button class="tab" data-tab="execution">Execution & Concurrency Analysis</button>
+            <button class="tab" data-tab="intelligence">Intelligence & Optimization</button>
+        </div>
+
+        <!-- Tab Content -->
+        <div id="overviewTab" class="tab-content active">
+            <!-- Program-Scoped Metrics -->
+            <div class="card">
+                <h2>Program Metrics</h2>
+                <div class="metric-cards">
+                    <div class="metric-card">
+                        <div class="metric-label">Program Name</div>
+                        <div class="metric-value" id="prog-name">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">PID</div>
+                        <div class="metric-value" id="prog-pid">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Uptime</div>
+                        <div class="metric-value" id="prog-uptime">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Child Processes</div>
+                        <div class="metric-value" id="child-count">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Current Phase</div>
+                        <div class="metric-value"><span class="phase-badge" id="current-phase">--</span></div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Active Anomalies</div>
+                        <div class="metric-value" id="active-anomalies">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Deadlock Status</div>
+                        <div class="metric-value" id="deadlock-status">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Anomaly Risk Score</div>
+                        <div class="metric-value" id="anomaly-risk">--</div>
+                    </div>
+                </div>
+                
+                <!-- Live Uptime Indicator -->
+                <div style="text-align: center; margin-top: 20px;">
+                    <div style="font-size: 18px; color: var(--primary);">Live Uptime: <span id="live-uptime">00:00:00</span></div>
+                </div>
             </div>
-            <div class="chart-card">
-                <h3>Phase Distribution</h3>
-                <canvas id="phaseChart"></canvas>
+
+            <!-- Program-Scoped CPU/Memory/Disk Charts -->
+            <div class="card">
+                <h2>Program Resource Usage</h2>
+                <div class="chart-container">
+                    <canvas id="programResourceChart"></canvas>
+                </div>
+            </div>
+
+            <!-- System Context (clearly labeled and de-emphasized) -->
+            <div class="card system-context">
+                <h2>System Context</h2>
+                <div class="metric-cards">
+                    <div class="metric-card">
+                        <div class="metric-label">Total CPU %</div>
+                        <div class="metric-value" id="sys-cpu">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Total Memory %</div>
+                        <div class="metric-value" id="sys-mem">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Disk I/O Rate</div>
+                        <div class="metric-value" id="sys-disk-io">--</div>
+                    </div>
+                </div>
+                
+                <!-- Phase Distribution and Top Consumers -->
+                <div class="metric-cards">
+                    <div class="metric-card">
+                        <div class="metric-label">Phase Distribution (Top System)</div>
+                        <div class="metric-value" id="sys-phase-dist">--</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Top System Consumers</div>
+                        <div class="metric-value" id="top-sys-consumers">--</div>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- Bottlenecks -->
-        <div class="card">
-            <h3>Bottlenecks Detected</h3>
-            <div id="bottlenecksList" class="bottlenecks-list">
-                <p class="text-muted">No bottlenecks detected</p>
+        <div id="executionTab" class="tab-content">
+            <!-- Process Table -->
+            <div class="card">
+                <h2>Process Analysis</h2>
+                <table class="process-table">
+                    <thead>
+                        <tr>
+                            <th>PID</th>
+                            <th>Name</th>
+                            <th>CPU %</th>
+                            <th>Memory %</th>
+                            <th>Disk</th>
+                            <th>Network</th>
+                            <th>Threads</th>
+                            <th>Phase</th>
+                        </tr>
+                    </thead>
+                    <tbody id="processTableBody">
+                        <tr><td colspan="8">Loading processes...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Live Charts -->
+            <div class="card">
+                <h2>Live Metrics (Last 60s)</h2>
+                <div class="chart-container">
+                    <canvas id="liveMetricsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Phase Analysis -->
+            <div class="card">
+                <h2>Phase Analysis</h2>
+                <div class="insight-panel">
+                    <h3>Gantt-style Timeline</h3>
+                    <div class="phase-timeline" id="phaseTimeline"></div>
+                </div>
+                
+                <div class="insight-panel">
+                    <h3>Phase Distribution</h3>
+                    <div class="chart-container">
+                        <canvas id="phaseDistributionChart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="insight-panel">
+                    <h3>Phase Transition History</h3>
+                    <div id="phaseTransitions">Loading...</div>
+                </div>
+                
+                <div class="insight-panel">
+                    <h3>Bottleneck Insights</h3>
+                    <div id="bottleneckInsights">Analyzing...</div>
+                </div>
+            </div>
+
+            <!-- Concurrency Analysis -->
+            <div class="card">
+                <h2>Concurrency Analysis</h2>
+                
+                <div class="insight-panel">
+                    <h3>Wait-for Graph</h3>
+                    <div class="deadlock-graph" id="deadlockGraph"></div>
+                </div>
+                
+                <div class="insight-panel">
+                    <h3>Deadlock Alerts</h3>
+                    <div id="deadlockAlerts" class="alert-container">
+                        <p>Monitoring for deadlock risks...</p>
+                    </div>
+                </div>
+                
+                <div class="insight-panel">
+                    <h3>Suggested Fixes</h3>
+                    <div id="deadlockFixes">No issues detected</div>
+                </div>
+                
+                <div class="insight-panel">
+                    <h3>Deadlock History</h3>
+                    <div id="deadlockHistory">No deadlocks recorded</div>
+                </div>
             </div>
         </div>
 
-        <!-- Load Sample Data Button -->
-        <div class="card">
-            <button id="loadSampleBtn" class="btn btn-secondary">Load Sample Data</button>
+        <div id="intelligenceTab" class="tab-content">
+            <!-- Anomaly Visualization -->
+            <div class="card">
+                <h2>Anomaly Score Time-series</h2>
+                <div class="chart-container">
+                    <canvas id="anomalyTimelineChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Threat Classification -->
+            <div class="card">
+                <h2>Threat Classification</h2>
+                <div id="threatClassification">
+                    <div class="alert alert-info">Scanning for threats...</div>
+                </div>
+            </div>
+
+            <!-- Real-time Alert Feed -->
+            <div class="card">
+                <h2>Real-time Alert Feed</h2>
+                <div id="alertFeed">
+                    <div class="alert alert-info">No alerts at this time</div>
+                </div>
+            </div>
+
+            <!-- Optimization Recommendations -->
+            <div class="card">
+                <h2>Optimization Recommendations</h2>
+                <div id="optimizationRecs">
+                    <div class="optimization-card">
+                        <div class="alert alert-info">Generating recommendations...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ML Model Stats -->
+            <div class="card">
+                <h2>ML Model Metadata</h2>
+                <div id="mlStats">
+                    <div class="alert alert-info">Loading model stats...</div>
+                </div>
+            </div>
+            
+            <!-- Predicted Performance Gain -->
+            <div class="card">
+                <h2>Predicted Performance Gains</h2>
+                <div class="chart-container">
+                    <canvas id="performanceGainChart"></canvas>
+                </div>
+            </div>
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
     <script>
-        let metricsChart, phaseChart;
+        // Global variables
+        let currentPid = null;
+        let wsConnection = null;
+        let programResourceChart = null;
+        let liveMetricsChart = null;
+        let phaseDistributionChart = null;
+        let anomalyTimelineChart = null;
+        let performanceGainChart = null;
+        let uptimeInterval = null;
+        let profile_data = {};
 
-        document.getElementById('loadSampleBtn').addEventListener('click', loadSampleData);
-
-        async function loadSampleData() {
-            const sampleMetrics = generateSampleMetrics();
-            displayMetrics(sampleMetrics);
-            displayPhases(sampleMetrics);
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Remove active class from all tabs and content
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                // Add active class to clicked tab
+                tab.classList.add('active');
+                
+                // Show corresponding content
+                const tabName = tab.getAttribute('data-tab');
+                document.getElementById(`${tabName}Tab`).classList.add('active');
+                
+                // Refresh the active tab's content
+                if (currentPid) {
+                    updateTabContent(tabName);
+                }
+            });
+        });
+        
+        // Start uptime counter
+        function startUptimeCounter() {
+            if (uptimeInterval) clearInterval(uptimeInterval);
+            
+            uptimeInterval = setInterval(() => {
+                if (document.getElementById('prog-uptime').textContent !== '--') {
+                    // Parse the current uptime and increment
+                    const uptimeText = document.getElementById('prog-uptime').textContent;
+                    const parts = uptimeText.split(':').map(Number);
+                    let seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+                    seconds++;
+                    
+                    const hours = Math.floor(seconds / 3600);
+                    const minutes = Math.floor((seconds % 3600) / 60);
+                    const secs = seconds % 60;
+                    
+                    document.getElementById('live-uptime').textContent = 
+                        `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                }
+            }, 1000);
+        }
+        
+        // Stop uptime counter
+        function stopUptimeCounter() {
+            if (uptimeInterval) {
+                clearInterval(uptimeInterval);
+                uptimeInterval = null;
+            }
+            document.getElementById('live-uptime').textContent = '00:00:00';
         }
 
-        function generateSampleMetrics() {
-            const metrics = [];
-            for (let i = 0; i < 60; i++) {
-                const t = i / 10;
-                const cpu = 30 + 40 * Math.sin(t) + Math.random() * 15;
-                const mem = 40 + 20 * Math.sin(t * 0.5) + Math.random() * 10;
-                metrics.push({
-                    timestamp: i * 0.5,
-                    cpu_percent: Math.max(0, Math.min(100, cpu)),
-                    memory_percent: Math.max(0, Math.min(100, mem)),
-                    phase: cpu > 70 ? 'cpu_bound' : mem > 60 ? 'memory_bound' : 'idle'
+        // Timer variables
+        let profilingTimer = null;
+        let startTime = null;
+        let profilingDurationSec = 0;
+        
+        // Format time as MM:SS
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        
+        // Update timer display
+        function updateTimer() {
+            if (!startTime || !profilingDurationSec) return;
+            
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const remaining = Math.max(0, profilingDurationSec - elapsed);
+            
+            const timerDisplay = document.getElementById('timerDisplay');
+            timerDisplay.textContent = `Time left: ${formatTime(remaining)}`;
+            timerDisplay.style.display = 'inline';
+            
+            if (remaining <= 0) {
+                clearInterval(profilingTimer);
+                timerDisplay.style.display = 'none';
+                // Optionally stop profiling when timer reaches 0
+                document.getElementById('stopProfiling').click();
+            }
+        }
+        
+        // Start profiling handler
+        document.getElementById('startProfiling').addEventListener('click', async () => {
+            const programPath = document.getElementById('programPath').value.trim();
+            const duration = parseInt(document.getElementById('profilingDuration').value) || 60;
+            
+            if (!programPath) {
+                alert('Please enter a program file path');
+                return;
+            }
+            
+            if (duration < 1 || duration > 300) {
+                alert('Please enter a duration between 1 and 300 seconds');
+                return;
+            }
+            
+            // Update status
+            const statusEl = document.getElementById('statusIndicator');
+            statusEl.className = 'status-indicator status-running';
+            statusEl.textContent = `Running (${duration}s)`;
+            
+            // Start timer
+            startTime = Date.now();
+            profilingDurationSec = duration;
+            
+            if (profilingTimer) {
+                clearInterval(profilingTimer);
+            }
+            profilingTimer = setInterval(updateTimer, 1000);
+            
+            try {
+                const response = await fetch('/api/profile/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        file_path: programPath,
+                        duration: duration
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    currentPid = data.pid;
+                    document.getElementById('programInfo').textContent = `PID: ${currentPid}`;
+                    
+                    // Start real-time updates
+                    startRealTimeUpdates();
+                    
+                    // Update program metrics
+                    updateDashboard();
+                    
+                    // Immediately update execution tab to show process data
+                    if (document.querySelector('.tab.active').getAttribute('data-tab') === 'execution') {
+                        updateExecutionTab();
+                    }
+                    
+                    startUptimeCounter();
+                } else {
+                    throw new Error(await response.text());
+                }
+            } catch (error) {
+                statusEl.className = 'status-indicator status-error';
+                statusEl.textContent = 'Error';
+                alert(`Error starting profiling: ${error.message}`);
+            }
+        });
+        
+        // Stop profiling handler
+        document.getElementById('stopProfiling').addEventListener('click', async () => {
+            if (currentPid) {
+                try {
+                    const response = await fetch('/api/profile/stop', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    
+                    if (response.ok) {
+                        // Update status
+                        const statusEl = document.getElementById('statusIndicator');
+                        statusEl.className = 'status-indicator status-idle';
+                        statusEl.textContent = 'Idle';
+                        
+                        // Clear timer
+                        if (profilingTimer) {
+                            clearInterval(profilingTimer);
+                            profilingTimer = null;
+                        }
+                        
+                        // Hide timer display
+                        const timerDisplay = document.getElementById('timerDisplay');
+                        timerDisplay.style.display = 'none';
+                        
+                        // Close WebSocket connection
+                        if (wsConnection) {
+                            wsConnection.close();
+                            wsConnection = null;
+                        }
+                        
+                        currentPid = null;
+                        document.getElementById('programInfo').textContent = '';
+                        stopUptimeCounter();
+                        
+                        // Clear metrics
+                        clearMetrics();
+                    } else {
+                        throw new Error(await response.text());
+                    }
+                } catch (error) {
+                    console.error('Error stopping profiling:', error);
+                }
+            }
+        });
+        
+        // Clear metrics when profiling stops
+        function clearMetrics() {
+            // Reset program metrics
+            document.getElementById('prog-name').textContent = '--';
+            document.getElementById('prog-pid').textContent = '--';
+            document.getElementById('prog-uptime').textContent = '--';
+            document.getElementById('child-count').textContent = '--';
+            document.getElementById('current-phase').textContent = '--';
+            document.getElementById('active-anomalies').textContent = '--';
+            document.getElementById('deadlock-status').textContent = '--';
+            document.getElementById('anomaly-risk').textContent = '--';
+            
+            // Reset system metrics
+            document.getElementById('sys-cpu').textContent = '--';
+            document.getElementById('sys-mem').textContent = '--';
+            document.getElementById('sys-disk-io').textContent = '--';
+            document.getElementById('sys-phase-dist').textContent = '--';
+            document.getElementById('top-sys-consumers').textContent = '--';
+            
+            // Clear charts
+            if (programResourceChart) {
+                programResourceChart.data.datasets.forEach(dataset => {
+                    dataset.data = [];
+                });
+                programResourceChart.update();
+            }
+        }
+        
+        // Start real-time updates via WebSocket
+        function startRealTimeUpdates() {
+            // In a real implementation, this would connect to WebSocket
+            // For now, we'll simulate with polling
+            setInterval(updateDashboard, 1000);
+        }
+        
+        // Update dashboard with latest data
+        async function updateDashboard() {
+            if (!currentPid) return;
+            
+            try {
+                // Get profile data
+                const profileResponse = await fetch(`/api/profile?pid=${currentPid}`);
+                if (profileResponse.ok) {
+                    const profileData = await profileResponse.json();
+                    updateProgramMetrics(profileData);
+                }
+                
+                // Get metrics data separately to update profile_data
+                const metricsResponse = await fetch(`/api/profile/${currentPid}/metrics?duration=60`);
+                if (metricsResponse.ok) {
+                    const metricsData = await metricsResponse.json();
+                    if (metricsData.metrics && Array.isArray(metricsData.metrics)) {
+                        if (!profile_data[currentPid]) {
+                            profile_data[currentPid] = [];
+                        }
+                        // Update profile_data with current metrics
+                        profile_data[currentPid] = [...metricsData.metrics];
+                    }
+                }
+                
+                // Get system data
+                const systemResponse = await fetch('/api/system');
+                if (systemResponse.ok) {
+                    const systemData = await systemResponse.json();
+                    updateSystemMetrics(systemData);
+                }
+                
+                // Update charts
+                updateRealtimeCharts();
+                
+                // Update active tab content
+                const activeTab = document.querySelector('.tab.active').getAttribute('data-tab');
+                updateTabContent(activeTab);
+            } catch (error) {
+                console.error('Error updating dashboard:', error);
+            }
+        }
+        
+        // Update specific tab content
+        function updateTabContent(tabName) {
+            switch(tabName) {
+                case 'overview':
+                    updateOverviewTab();
+                    break;
+                case 'execution':
+                    updateExecutionTab();
+                    break;
+                case 'intelligence':
+                    updateIntelligenceTab();
+                    break;
+            }
+        }
+        
+        // Update Overview tab
+        function updateOverviewTab() {
+            // Already handled by general update functions
+        }
+        
+        // Update Execution tab
+        async function updateExecutionTab() {
+            if (!currentPid) return;
+            
+            try {
+                // Get process tree
+                const treeResponse = await fetch(`/api/profile/${currentPid}/tree`);
+                if (treeResponse.ok) {
+                    const treeData = await treeResponse.json();
+                    updateProcessTable(treeData.process_tree);
+                }
+                
+                // Get phases
+                const phasesResponse = await fetch(`/api/profile/${currentPid}/phases`);
+                if (phasesResponse.ok) {
+                    const phasesData = await phasesResponse.json();
+                    updatePhaseAnalysis(phasesData.phases);
+                }
+                
+                // Get deadlock info
+                const deadlockResponse = await fetch(`/api/profile/${currentPid}/deadlock`);
+                if (deadlockResponse.ok) {
+                    const deadlockData = await deadlockResponse.json();
+                    updateDeadlockInfo(deadlockData);
+                }
+            } catch (error) {
+                console.error('Error updating execution tab:', error);
+            }
+        }
+        
+        // Update Intelligence tab
+        async function updateIntelligenceTab() {
+            if (!currentPid) return;
+            
+            try {
+                // Get anomaly timeline
+                const anomalyTimelineResponse = await fetch(`/api/profile/${currentPid}/anomaly/timeline`);
+                if (anomalyTimelineResponse.ok) {
+                    const anomalyData = await anomalyTimelineResponse.json();
+                    updateAnomalyTimeline(anomalyData.anomalies);
+                }
+                
+                // Get anomaly alerts
+                const anomalyAlertsResponse = await fetch(`/api/profile/${currentPid}/anomaly/alerts`);
+                if (anomalyAlertsResponse.ok) {
+                    const alertData = await anomalyAlertsResponse.json();
+                    updateThreatClassification(alertData.alerts);
+                    updateAlertFeed(alertData.alerts);
+                }
+                
+                // Get optimization recommendations
+                const optResponse = await fetch(`/api/profile/${currentPid}/optimize`);
+                if (optResponse.ok) {
+                    const optData = await optResponse.json();
+                    updateOptimizationRecommendations(optData.recommendations);
+                }
+                
+                // Get ML stats
+                const mlResponse = await fetch('/api/ml/model/stats');
+                if (mlResponse.ok) {
+                    const mlData = await mlResponse.json();
+                    updateMLStats(mlData);
+                }
+            } catch (error) {
+                console.error('Error updating intelligence tab:', error);
+            }
+        }
+        
+        // Update program metrics display
+        function updateProgramMetrics(data = {}) {
+            document.getElementById('prog-name').textContent = data.program_path ? data.program_path.split('\\').pop().split('/').pop() : '--';
+            document.getElementById('prog-pid').textContent = data.pid || '--';
+            document.getElementById('prog-uptime').textContent = formatDuration(data.uptime || 0);
+            document.getElementById('child-count').textContent = data.child_process_count || '--';
+            document.getElementById('current-phase').textContent = data.current_phase || '--';
+            document.getElementById('active-anomalies').textContent = data.anomaly_count || 0;
+            document.getElementById('deadlock-status').textContent = data.deadlock_detected ? 'DETECTED' : 'CLEAN';
+            document.getElementById('anomaly-risk').textContent = data.anomaly_risk_score || 0;
+        }
+        
+        // Format duration in seconds to HH:MM:SS
+        function formatDuration(seconds) {
+            const hrs = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        
+        // Update system metrics display
+        function updateSystemMetrics(data = {}) {
+            const sysMetrics = data.system_metrics || {};
+            document.getElementById('sys-cpu').textContent = sysMetrics.cpu_percent ? `${sysMetrics.cpu_percent.toFixed(1)}%` : '--';
+            document.getElementById('sys-mem').textContent = sysMetrics.memory_percent ? `${sysMetrics.memory_percent.toFixed(1)}%` : '--';
+            document.getElementById('sys-disk-io').textContent = sysMetrics.disk_percent ? `${sysMetrics.disk_percent.toFixed(1)}%` : '--';
+            
+            const topProcs = (data.top_processes || []).slice(0, 3).map(p => p.name).join(', ');
+            document.getElementById('top-sys-consumers').textContent = topProcs || '--';
+        }
+        
+        // Update process table
+        function updateProcessTable(processTree) {
+            const tbody = document.getElementById('processTableBody');
+            tbody.innerHTML = '';
+            
+            function addProcessRow(process, level = 0) {
+                const tr = document.createElement('tr');
+                
+                // Apply indentation based on level
+                const indent = '&nbsp;'.repeat(level * 4);
+                
+                tr.innerHTML = `
+                    <td>${process.pid || '--'}</td>
+                    <td>${indent}${process.name || 'Unknown Process'}</td>
+                    <td>${process.cpu_percent !== undefined ? process.cpu_percent.toFixed(1) : '0.0'}%</td>
+                    <td>${process.memory_percent !== undefined ? process.memory_percent.toFixed(1) : '0.0'}%</td>
+                    <td>${process.memory_rss_mb !== undefined ? process.memory_rss_mb.toFixed(1) : '0.0'} MB</td>
+                    <td>--</td>
+                    <td>${process.num_threads || 0}</td>
+                    <td><span class="phase-badge">${process.current_phase || 'unknown'}</span></td>
+                `;
+                
+                tbody.appendChild(tr);
+                
+                // Add children
+                (process.children || []).forEach(child => {
+                    addProcessRow(child, level + 1);
                 });
             }
-            return metrics;
+            
+            if (processTree && Object.keys(processTree).length > 0) {
+                addProcessRow(processTree);
+            } else {
+                tbody.innerHTML = '<tr><td colspan="8"><div class="alert alert-info">No process data available. Process may have ended or is not accessible.</div></td></tr>';
+            }
         }
-
-        function displayMetrics(metrics) {
-            const cpus = metrics.map(m => m.cpu_percent);
-            const mems = metrics.map(m => m.memory_percent);
+        
+        // Update phase analysis
+        function updatePhaseAnalysis(phases) {
+            const transitionsDiv = document.getElementById('phaseTransitions');
+            const timelineDiv = document.getElementById('phaseTimeline');
             
-            document.getElementById('metric-cpu').textContent = (cpus.reduce((a,b) => a+b) / cpus.length).toFixed(1);
-            document.getElementById('metric-cpu-peak').textContent = Math.max(...cpus).toFixed(1);
-            document.getElementById('metric-mem').textContent = (mems.reduce((a,b) => a+b) / mems.length).toFixed(1);
-            document.getElementById('metric-samples').textContent = metrics.length;
+            if (phases && phases.length > 0) {
+                // Update phase transitions
+                const lastFive = phases.slice(-5);
+                transitionsDiv.innerHTML = `<div class="alert alert-info">Last 5 transitions: ${lastFive.map(p => '<span class="phase-badge">' + p.phase + '</span>').join(' → ')}</div>`;
+                
+                // Update phase timeline visualization
+                if (timelineDiv) {
+                    timelineDiv.innerHTML = '';
+                    const timelineContainer = document.createElement('div');
+                    timelineContainer.style.display = 'flex';
+                    timelineContainer.style.flexWrap = 'wrap';
+                    timelineContainer.style.gap = '5px';
+                    
+                    phases.slice(-20).forEach((phase, index) => {
+                        const phaseBlock = document.createElement('div');
+                        phaseBlock.className = 'phase-badge';
+                        phaseBlock.textContent = phase.phase.substring(0, 3).toUpperCase();
+                        phaseBlock.title = `${phase.phase} (${new Date(phase.timestamp * 1000).toLocaleTimeString()})`;
+                        phaseBlock.style.fontSize = '10px';
+                        phaseBlock.style.padding = '2px 4px';
+                        timelineContainer.appendChild(phaseBlock);
+                    });
+                    
+                    timelineDiv.appendChild(timelineContainer);
+                }
+            } else {
+                transitionsDiv.innerHTML = '<div class="alert alert-warning">No phase transition data available</div>';
+                if (timelineDiv) {
+                    timelineDiv.innerHTML = '<div class="alert alert-info">Phase timeline will appear here once data is collected</div>';
+                }
+            }
+        }
+        
+        // Update deadlock info
+        function updateDeadlockInfo(deadlockData) {
+            const alertsContainer = document.getElementById('deadlockAlerts');
+            const fixesContainer = document.getElementById('deadlockFixes');
+            const historyContainer = document.getElementById('deadlockHistory');
             
-            // Update chart
-            if (metricsChart) metricsChart.destroy();
-            const ctx = document.getElementById('metricsChart').getContext('2d');
-            metricsChart = new Chart(ctx, {
+            if (deadlockData && deadlockData.analysis) {
+                const analysis = deadlockData.analysis;
+                
+                // Update alerts
+                if (analysis.has_cycles) {
+                    alertsContainer.innerHTML = `
+                        <div class="alert alert-critical glow">
+                            <strong>⚠ DEADLOCK DETECTED!</strong><br>
+                            ${analysis.cycle_count} cycle(s) found<br>
+                            Risk Level: ${analysis.risk_level.toUpperCase()}<br>
+                            ${analysis.nodes_in_cycles.length} nodes involved
+                        </div>
+                    `;
+                } else {
+                    alertsContainer.innerHTML = `
+                        <div class="alert alert-info">
+                            <strong>✓ No Deadlocks Detected</strong><br>
+                            Risk Level: ${analysis.risk_level}<br>
+                            ${analysis.total_locks_tracked} locks currently tracked
+                        </div>
+                    `;
+                }
+                
+                // Update suggested fixes
+                if (fixesContainer) {
+                    if (analysis.has_cycles) {
+                        fixesContainer.innerHTML = `
+                            <div class="alert alert-warning">
+                                <strong>Suggested Fixes:</strong><br>
+                                • Implement lock ordering protocol<br>
+                                • Use timeout-based locks<br>
+                                • Consider lock-free algorithms<br>
+                                • Review thread synchronization patterns
+                            </div>
+                        `;
+                    } else {
+                        fixesContainer.innerHTML = `
+                            <div class="alert alert-info">
+                                <strong>Best Practices:</strong><br>
+                                • Maintain consistent lock ordering<br>
+                                • Use RAII for lock management<br>
+                                • Monitor lock contention regularly<br>
+                                • Consider async alternatives when possible
+                            </div>
+                        `;
+                    }
+                }
+                
+                // Update deadlock history
+                if (historyContainer) {
+                    const historical = deadlockData.historical_deadlocks || [];
+                    if (historical.length > 0) {
+                        historyContainer.innerHTML = `
+                            <div class="alert alert-warning">
+                                <strong>Historical Deadlocks (${historical.length}):</strong><br>
+                                ${historical.slice(0, 3).map((dl, i) => 
+                                    `#${i+1}: ${dl.type || 'Unknown'} at ${new Date(dl.timestamp * 1000).toLocaleTimeString()}
+                                `).join('<br>')}
+                            </div>
+                        `;
+                    } else {
+                        historyContainer.innerHTML = '<div class="alert alert-info">No deadlock history recorded</div>';
+                    }
+                }
+            } else {
+                alertsContainer.innerHTML = '<div class="alert alert-info">Analyzing deadlock risks...</div>';
+                if (fixesContainer) fixesContainer.innerHTML = '<div class="alert alert-info">Loading deadlock analysis...</div>';
+                if (historyContainer) historyContainer.innerHTML = '<div class="alert alert-info">Loading deadlock history...</div>';
+            }
+        }
+        
+        // Update anomaly timeline
+        function updateAnomalyTimeline(anomalies) {
+            // Update chart if we have data
+            if (anomalyTimelineChart && anomalies) {
+                const time = new Date().toLocaleTimeString();
+                
+                if (Array.isArray(anomalies) && anomalies.length > 0) {
+                    // Extract anomaly scores if available, otherwise use count
+                    const anomalyScore = anomalies.length > 0 ? Math.min(1.0, anomalies.length / 10) : 0;
+                    
+                    // Add new data point
+                    anomalyTimelineChart.data.labels.push(time);
+                    if (anomalyTimelineChart.data.labels.length > 30) anomalyTimelineChart.data.labels.shift();
+                    
+                    anomalyTimelineChart.data.datasets[0].data.push(anomalyScore);
+                    if (anomalyTimelineChart.data.datasets[0].data.length > 30) anomalyTimelineChart.data.datasets[0].data.shift();
+                } else {
+                    // Add 0 if no anomalies
+                    anomalyTimelineChart.data.labels.push(time);
+                    if (anomalyTimelineChart.data.labels.length > 30) anomalyTimelineChart.data.labels.shift();
+                    
+                    anomalyTimelineChart.data.datasets[0].data.push(0);
+                    if (anomalyTimelineChart.data.datasets[0].data.length > 30) anomalyTimelineChart.data.datasets[0].data.shift();
+                }
+                
+                anomalyTimelineChart.update();
+            }
+        }
+        
+        // Update threat classification
+        function updateThreatClassification(alerts) {
+            const container = document.getElementById('threatClassification');
+            if (alerts && alerts.length > 0) {
+                container.innerHTML = alerts.slice(0, 3).map((alert, index) => {
+                    const severity = alert.severity || 'medium';
+                    const cls = severity === 'high' ? 'alert-critical' : 
+                               severity === 'low' ? 'alert-info' : 'alert-warning';
+                    const threatType = alert.type || 'Unknown Threat';
+                    const confidence = alert.confidence ? `(${(alert.confidence * 100).toFixed(1)}%)` : '';
+                    
+                    return `
+                        <div class="alert ${cls}">
+                            <strong>Threat #${index + 1}: ${threatType}</strong> ${confidence}<br>
+                            ${alert.message || 'Security threat detected'}<br>
+                            <small>Severity: ${severity.toUpperCase()}</small>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                container.innerHTML = `
+                    <div class="alert alert-info">
+                        <strong>No Active Threats</strong><br>
+                        System appears secure<br>
+                        <small>Continue monitoring for anomalies</small>
+                    </div>
+                `;
+            }
+        }
+        
+        // Update alert feed
+        function updateAlertFeed(alerts) {
+            const container = document.getElementById('alertFeed');
+            if (alerts && alerts.length > 0) {
+                container.innerHTML = alerts.slice(0, 5).map((alert, index) => {
+                    const severity = alert.severity || 'medium';
+                    const cls = severity === 'high' ? 'alert-critical' : 
+                               severity === 'low' ? 'alert-info' : 'alert-warning';
+                    const timestamp = alert.timestamp ? new Date(alert.timestamp * 1000).toLocaleTimeString() : new Date().toLocaleTimeString();
+                    const alertType = alert.type ? `[${alert.type.toUpperCase()}]` : '';
+                    
+                    return `
+                        <div class="alert ${cls}">
+                            <strong>${timestamp} ${alertType}</strong><br>
+                            ${alert.message || 'Security event detected'}<br>
+                            <div style="margin-top: 5px;">
+                                <button onclick="acknowledgeAlert(${index})" class="btn btn-small">Acknowledge</button>
+                                <button onclick="investigateAlert(${index})" class="btn btn-small">Investigate</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                container.innerHTML = `
+                    <div class="alert alert-info">
+                        <strong>Quiet Period</strong><br>
+                        No active alerts<br>
+                        <small>System operating normally</small>
+                    </div>
+                `;
+            }
+        }
+        
+        // Update optimization recommendations
+        function updateOptimizationRecommendations(recs) {
+            const container = document.getElementById('optimizationRecs');
+            if (recs && recs.length > 0) {
+                container.innerHTML = recs.slice(0, 3).map((rec, index) => `
+                    <div class="optimization-card">
+                        <div class="alert alert-info">
+                            <strong>Recommendation #${index + 1}: ${rec.phase_type ? rec.phase_type.replace('_', ' ').toUpperCase() : 'GENERAL'}</strong><br>
+                            ${rec.suggestions && rec.suggestions.length > 0 ? 
+                                rec.suggestions.slice(0, 2).map(s => `• ${s}`).join('<br>') : 
+                                'Performance optimization opportunity'}
+                            <br><br>
+                            <strong>Predicted Impact:</strong> ${(rec.predicted_speedup || 1.0).toFixed(2)}x faster
+                            ${rec.confidence ? `<br><strong>Confidence:</strong> ${(rec.confidence * 100).toFixed(1)}%` : ''}
+                            <br><br>
+                            <button onclick="applyRecommendation(${index})" class="btn btn-small">Apply Recommendation</button>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                container.innerHTML = `
+                    <div class="optimization-card">
+                        <div class="alert alert-info">
+                            <strong>Performance Analysis Complete</strong><br>
+                            No critical optimizations needed<br>
+                            <small>System performing within expected parameters</small>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+        
+        // Update ML stats
+        function updateMLStats(stats) {
+            const container = document.getElementById('mlStats');
+            if (stats.status === 'success' && stats.models) {
+                const anomalyModel = stats.models.anomaly;
+                const regressionModel = stats.models.regression;
+                
+                container.innerHTML = `
+                    <div class="metric-cards">
+                        <div class="metric-card">
+                            <div class="metric-label">Anomaly Model</div>
+                            <div class="metric-value" style="${anomalyModel.loaded ? 'color: var(--primary);' : 'color: var(--warning);'}">
+                                ${anomalyModel.loaded ? '✓ LOADED' : '○ NOT LOADED'}
+                            </div>
+                            <div style="font-size: 12px; color: var(--accent);">
+                                Size: ${anomalyModel.size_mb || 0} MB<br>
+                                Method: ${stats.anomaly_detector?.detection_method || 'Unknown'}
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Regression Model</div>
+                            <div class="metric-value" style="${regressionModel.loaded ? 'color: var(--primary);' : 'color: var(--warning);'}">
+                                ${regressionModel.loaded ? '✓ LOADED' : '○ NOT LOADED'}
+                            </div>
+                            <div style="font-size: 12px; color: var(--accent);">
+                                Size: ${regressionModel.size_mb || 0} MB<br>
+                                Method: ${stats.recommender?.prediction_method || 'Unknown'}
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">System Info</div>
+                            <div class="metric-value">${stats.system_info?.total_models || 0}</div>
+                            <div style="font-size: 12px; color: var(--accent);">
+                                Total Models<br>
+                                ${stats.system_info?.total_size_mb || 0} MB Total
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 15px; font-size: 12px; color: var(--accent);">
+                        <strong>Last Updated:</strong> ${new Date(stats.timestamp).toLocaleString()}<br>
+                        <strong>Models Directory:</strong> ${stats.system_info?.models_directory || 'Unknown'}
+                    </div>
+                `;
+            } else {
+                container.innerHTML = '<div class="alert alert-info">Loading model stats...</div>';
+            }
+        }
+        
+        // Update real-time charts
+        function updateRealtimeCharts() {
+            // Get real data if available, otherwise simulate
+            let cpu, memory, disk;
+            
+            if (currentPid && profile_data[currentPid] && profile_data[currentPid].length > 0) {
+                // Use real data
+                const latestMetric = profile_data[currentPid][profile_data[currentPid].length - 1];
+                cpu = parseFloat(latestMetric.cpu_percent) || 0;
+                memory = parseFloat(latestMetric.memory_percent) || 0;
+                disk = (parseFloat(latestMetric.disk_read_mb) + parseFloat(latestMetric.disk_write_mb)) || 0;
+            } else {
+                // Simulate data for demonstration
+                cpu = 20 + Math.sin(Date.now() / 5000) * 30 + Math.random() * 20;
+                memory = 30 + Math.cos(Date.now() / 7000) * 25 + Math.random() * 15;
+                disk = Math.random() * 30;
+            }
+            
+            const time = new Date().toLocaleTimeString();
+            
+            // Update program resource chart
+            if (programResourceChart) {
+                const data = programResourceChart.data;
+                data.labels.push(time);
+                if (data.labels.length > 20) data.labels.shift();
+                
+                data.datasets[0].data.push(cpu);
+                if (data.datasets[0].data.length > 20) data.datasets[0].data.shift();
+                
+                data.datasets[1].data.push(memory);
+                if (data.datasets[1].data.length > 20) data.datasets[1].data.shift();
+                
+                data.datasets[2].data.push(disk);
+                if (data.datasets[2].data.length > 20) data.datasets[2].data.shift();
+                
+                programResourceChart.update();
+            }
+            
+            // Update live metrics chart (execution tab)
+            if (liveMetricsChart) {
+                const liveData = liveMetricsChart.data;
+                liveData.labels.push(time);
+                if (liveData.labels.length > 30) liveData.labels.shift();
+                
+                liveData.datasets[0].data.push(cpu);
+                if (liveData.datasets[0].data.length > 30) liveData.datasets[0].data.shift();
+                
+                liveData.datasets[1].data.push(memory);
+                if (liveData.datasets[1].data.length > 30) liveData.datasets[1].data.shift();
+                
+                liveMetricsChart.update();
+            }
+        }
+        
+        // Initialize charts
+        function initCharts() {
+            // Program resource chart
+            const resourceCtx = document.getElementById('programResourceChart').getContext('2d');
+            programResourceChart = new Chart(resourceCtx, {
                 type: 'line',
                 data: {
-                    labels: metrics.map(m => m.timestamp.toFixed(1)),
+                    labels: Array(10).fill(''),
                     datasets: [
                         {
                             label: 'CPU %',
-                            data: cpus,
+                            data: Array(10).fill(0),
                             borderColor: '#64ffda',
                             backgroundColor: 'rgba(100, 255, 218, 0.1)',
                             tension: 0.3,
@@ -128,9 +1416,17 @@
                         },
                         {
                             label: 'Memory %',
-                            data: mems,
-                            borderColor: '#ff6b6b',
-                            backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                            data: Array(10).fill(0),
+                            borderColor: '#bd93f9',
+                            backgroundColor: 'rgba(189, 147, 249, 0.1)',
+                            tension: 0.3,
+                            fill: true
+                        },
+                        {
+                            label: 'Disk I/O MB/s',
+                            data: Array(10).fill(0),
+                            borderColor: '#ffb86c',
+                            backgroundColor: 'rgba(255, 184, 108, 0.1)',
                             tension: 0.3,
                             fill: true
                         }
@@ -138,328 +1434,331 @@
                 },
                 options: {
                     responsive: true,
-                    maintainAspectRatio: true,
+                    maintainAspectRatio: false,
                     plugins: {
                         legend: {
-                            labels: { color: '#94a3b8', font: { size: 12 } }
+                            labels: { color: '#f8f8f2' }
                         }
                     },
                     scales: {
                         y: {
-                            grid: { color: '#1e293b' },
-                            ticks: { color: '#94a3b8' },
-                            max: 100
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: '#f8f8f2' },
+                            min: 0
                         },
                         x: {
-                            grid: { color: '#1e293b' },
-                            ticks: { color: '#94a3b8' }
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: '#f8f8f2' }
                         }
                     }
                 }
             });
-        }
-
-        function displayPhases(metrics) {
-            const phaseCounts = {};
-            metrics.forEach(m => {
-                phaseCounts[m.phase] = (phaseCounts[m.phase] || 0) + 1;
+            
+            // Live metrics chart (execution tab)
+            const liveCtx = document.getElementById('liveMetricsChart').getContext('2d');
+            liveMetricsChart = new Chart(liveCtx, {
+                type: 'line',
+                data: {
+                    labels: Array(30).fill(''),
+                    datasets: [
+                        {
+                            label: 'CPU %',
+                            data: Array(30).fill(0),
+                            borderColor: '#64ffda',
+                            tension: 0.3
+                        },
+                        {
+                            label: 'Memory %',
+                            data: Array(30).fill(0),
+                            borderColor: '#bd93f9',
+                            tension: 0.3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#f8f8f2' }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: '#f8f8f2' },
+                            min: 0,
+                            max: 100
+                        },
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: '#f8f8f2' }
+                        }
+                    }
+                }
             });
             
-            if (phaseChart) phaseChart.destroy();
-            const ctx = document.getElementById('phaseChart').getContext('2d');
-            phaseChart = new Chart(ctx, {
+            // Phase distribution chart
+            const phaseCtx = document.getElementById('phaseDistributionChart').getContext('2d');
+            phaseDistributionChart = new Chart(phaseCtx, {
                 type: 'doughnut',
                 data: {
-                    labels: Object.keys(phaseCounts),
+                    labels: ['CPU-bound', 'I/O-bound', 'Memory-bound', 'Mixed', 'Idle'],
                     datasets: [{
-                        data: Object.values(phaseCounts),
-                        backgroundColor: ['#64ffda', '#ff6b6b', '#feca57', '#48dbfb'],
-                        borderColor: '#0a192f',
-                        borderWidth: 2
+                        data: [30, 25, 15, 20, 10],
+                        backgroundColor: [
+                            '#64ffda',
+                            '#bd93f9',
+                            '#ffb86c',
+                            '#ff79c6',
+                            '#50fa7b'
+                        ]
                     }]
                 },
                 options: {
                     responsive: true,
+                    maintainAspectRatio: false,
                     plugins: {
                         legend: {
-                            labels: { color: '#94a3b8', font: { size: 12 } }
+                            labels: { color: '#f8f8f2' }
                         }
                     }
                 }
             });
             
-            // Display bottlenecks
-            const bottlenecksList = document.getElementById('bottlenecksList');
-            const bottlenecks = [
-                { type: 'CPU', severity: 'high', message: 'High CPU usage detected (avg 65%)' },
-                { type: 'Memory', severity: 'medium', message: 'Memory usage at 58%' }
-            ];
-            bottlenecksList.innerHTML = bottlenecks.map(b => `
-                <div class="bottleneck-item ${b.severity}">
-                    <span class="bottleneck-type">${b.type}</span>
-                    <span class="bottleneck-message">${b.message}</span>
-                </div>
-            `).join('');
-        }
-
-        // Load on page load
-        window.addEventListener('load', loadSampleData);
-    </script>
-</body>
-</html>
-
-        <!-- Metrics Timeline Chart -->
-        <div class="card">
-            <h2>Metrics Over Time</h2>
-            <div class="chart-container">
-                <canvas id="metricsChart"></canvas>
-            </div>
-        </div>
-
-        <!-- Phase Detection -->
-        <div class="card">
-            <h2>Phase Timeline</h2>
-            <p>Execution phases detected over time:</p>
-            <div id="phaseTimeline" class="phase-timeline"></div>
-        </div>
-
-        <!-- Phase Distribution Chart -->
-        <div class="card">
-            <h2>Phase Distribution</h2>
-            <div class="chart-container">
-                <canvas id="phaseChart"></canvas>
-            </div>
-        </div>
-
-        <!-- Bottleneck Classification -->
-        <div class="card">
-            <h2>Bottleneck Classification</h2>
-            <div id="bottleneckList" class="bottleneck-list">
-                <p>Loading bottleneck analysis...</p>
-            </div>
-            <div class="chart-container" style="height: 300px;">
-                <canvas id="bottleneckChart"></canvas>
-            </div>
-        </div>
-
-        <!-- Deadlock Detection -->
-        <div class="card">
-            <h2>🔒 Deadlock Risk Detection</h2>
-            <div id="deadlockAlerts" class="alert-container">
-                <p>Analyzing deadlock risks...</p>
-            </div>
-            <button onclick="checkDeadlocks()" class="btn" style="margin-top: 10px;">Check for Deadlocks</button>
-        </div>
-
-        <!-- Security Anomaly Detection -->
-        <div class="card">
-            <h2>🚨 Security Anomaly Detection</h2>
-            <div id="anomalyAlerts" class="alert-container">
-                <p>Scanning for security anomalies...</p>
-            </div>
-            <button onclick="checkAnomalies()" class="btn" style="margin-top: 10px;">Scan for Anomalies</button>
-        </div>
-
-        <!-- Refresh Button -->
-        <div class="card text-center">
-            <button onclick="refreshDashboard()" class="btn">🔄 Refresh Dashboard</button>
-        </div>
-    </div>
-
-    <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
-    <script>
-        // Refresh dashboard function
-        async function refreshDashboard() {
-            const statusDiv = document.createElement('div');
-            statusDiv.className = 'alert alert-info';
-            statusDiv.textContent = 'Refreshing dashboard...';
-            document.querySelector('.container').insertBefore(statusDiv, document.querySelector('.card'));
-
-            try {
-                // Fetch metrics
-                const metricsResponse = await fetch('/api/metrics');
-                const metricsData = await metricsResponse.json();
-
-                if (metricsData.status === 'success' && metricsData.metrics) {
-                    const metrics = metricsData.metrics;
-
-                    // Update metrics cards
-                    updateMetricsCards(metrics);
-                    document.getElementById('metric-samples').textContent = metrics.length;
-
-                    // Update charts
-                    initMetricsChart('metricsChart', metrics);
-                    initPhaseChart('phaseChart', metrics);
-                    renderPhaseTimeline('phaseTimeline', metrics);
-
-                    // Fetch bottleneck classifications
-                    try {
-                        const features = metrics.slice(-10).map(m => [
-                            parseFloat(m.cpu_percent || 0),
-                            parseFloat(m.memory_percent || 0),
-                            parseFloat(m.memory_used_gb || 0),
-                            parseFloat(m.disk_read_mb || 0),
-                            parseFloat(m.disk_write_mb || 0),
-                            parseFloat(m.network_sent_mb || 0),
-                            parseFloat(m.network_recv_mb || 0)
-                        ]);
-
-                        const classifyResponse = await fetch('/api/classify', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ metrics: metrics })
-                        });
-
-                        const classifyData = await classifyResponse.json();
-                        if (classifyData.status === 'success') {
-                            // Create bottleneck data structure from classifications
-                            const bottlenecks = classifyData.classifications.map((cls, idx) => ({
-                                type: cls.phase,
-                                severity: cls.cpu_percent > 80 || cls.memory_percent > 80 ? 8 : 
-                                         cls.cpu_percent > 50 || cls.memory_percent > 50 ? 5 : 3,
-                                description: `Detected ${cls.phase} phase - CPU: ${cls.cpu_percent.toFixed(1)}%, Memory: ${cls.memory_percent.toFixed(1)}%`,
-                                recommendation: getRecommendation(cls.phase)
-                            }));
-
-                            renderBottleneckList('bottleneckList', bottlenecks);
-                            initBottleneckChart('bottleneckChart', bottlenecks);
+            // Anomaly timeline chart (intelligence tab)
+            const anomalyCtx = document.getElementById('anomalyTimelineChart').getContext('2d');
+            anomalyTimelineChart = new Chart(anomalyCtx, {
+                type: 'line',
+                data: {
+                    labels: Array(30).fill(''),
+                    datasets: [
+                        {
+                            label: 'Anomaly Score',
+                            data: Array(30).fill(0),
+                            borderColor: '#ff5555',
+                            backgroundColor: 'rgba(255, 85, 85, 0.1)',
+                            tension: 0.3,
+                            fill: true
                         }
-                    } catch (error) {
-                        console.error('Error classifying bottlenecks:', error);
-                        document.getElementById('bottleneckList').innerHTML = 
-                            '<p>Bottleneck classification unavailable. Please train models first.</p>';
-                    }
-                } else {
-                    statusDiv.className = 'alert alert-warning';
-                    statusDiv.textContent = 'No metrics data available. Start profiling first.';
-                }
-            } catch (error) {
-                statusDiv.className = 'alert alert-error';
-                statusDiv.textContent = `Error: ${error.message}`;
-            }
-
-            setTimeout(() => statusDiv.remove(), 3000);
-        }
-
-        function getRecommendation(phase) {
-            const recommendations = {
-                'cpu_bound': 'Consider parallelization, algorithm optimization, or using faster libraries',
-                'io_bound': 'Optimize I/O operations, use async I/O, or cache frequently accessed data',
-                'memory_bound': 'Reduce memory allocation, optimize data structures, or increase available memory',
-                'memory_bound': 'Optimize memory usage, consider memory pooling or garbage collection tuning',
-                'mixed': 'Multiple optimization strategies may be needed',
-                'idle': 'System is idle - no optimization needed'
-            };
-            return recommendations[phase] || 'Review code for optimization opportunities';
-        }
-
-        // Deadlock detection
-        async function checkDeadlocks() {
-            const container = document.getElementById('deadlockAlerts');
-            container.innerHTML = '<p>Checking for deadlock risks...</p>';
-            
-            try {
-                const response = await fetch('/api/deadlock', { method: 'POST' });
-                const data = await response.json();
-                
-                if (data.status === 'success' && data.analysis) {
-                    const analysis = data.analysis;
-                    let html = '';
-                    
-                    if (analysis.cycles_detected === 0) {
-                        html = '<div class="alert alert-success">✅ No deadlock risks detected</div>';
-                    } else {
-                        html = `<div class="alert alert-warning">
-                            <strong>⚠️ ${analysis.cycles_detected} potential deadlock(s) detected!</strong>
-                        </div>`;
-                        
-                        analysis.cycles.forEach(cycle => {
-                            html += `<div class="alert alert-error">
-                                <strong>Risk Level: ${cycle.risk_level.toUpperCase()}</strong><br>
-                                ${cycle.description}
-                            </div>`;
-                        });
-                        
-                        if (analysis.recommendations) {
-                            html += '<h4>Recommendations:</h4>';
-                            analysis.recommendations.forEach(rec => {
-                                html += `<div class="alert alert-${rec.type === 'critical' ? 'error' : rec.type === 'warning' ? 'warning' : 'info'}">
-                                    ${rec.message}
-                                </div>`;
-                            });
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#f8f8f2' }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: '#f8f8f2' },
+                            min: 0,
+                            max: 1
+                        },
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: '#f8f8f2' }
                         }
                     }
+                }
+            });
+            
+            // Performance gain chart
+            const perfCtx = document.getElementById('performanceGainChart').getContext('2d');
+            performanceGainChart = new Chart(perfCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['Recommendation 1', 'Recommendation 2', 'Recommendation 3'],
+                    datasets: [{
+                        label: 'Predicted Speedup (x)',
+                        data: [1.5, 2.1, 1.8],
+                        backgroundColor: 'rgba(100, 255, 218, 0.5)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#f8f8f2' }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: '#f8f8f2' },
+                            min: 0
+                        },
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: '#f8f8f2' }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Alert action handlers
+        function acknowledgeAlert(index) {
+            console.log(`Acknowledging alert #${index}`);
+            // In a real implementation, this would send a request to the backend
+            alert(`Alert #${index + 1} acknowledged`);
+        }
+        
+        function investigateAlert(index) {
+            console.log(`Investigating alert #${index}`);
+            // In a real implementation, this would open detailed analysis
+            alert(`Investigation started for alert #${index + 1}`);
+        }
+        
+        function applyRecommendation(index) {
+            console.log(`Applying recommendation #${index}`);
+            // In a real implementation, this would apply the optimization
+            alert(`Recommendation #${index + 1} applied successfully`);
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            initCharts();
+            
+            // Set up periodic updates
+            setInterval(() => {
+                if (currentPid) {
+                    updateDashboard();
+                }
+                // Also update ML stats and performance gain periodically
+                updateMLStatsDisplay();
+                updatePerformanceGainDisplay();
+            }, 2000); // Update every 2 seconds
+            
+            // Initial demo data
+            setTimeout(() => {
+                if (!currentPid) {
+                    // Show demo data when no process is running
+                    document.getElementById('prog-name').textContent = 'Demo Program';
+                    document.getElementById('prog-pid').textContent = '--';
+                    document.getElementById('prog-uptime').textContent = '--';
+                    document.getElementById('child-count').textContent = '--';
+                    document.getElementById('current-phase').textContent = 'idle';
+                    document.getElementById('active-anomalies').textContent = '0';
+                    document.getElementById('deadlock-status').textContent = 'CLEAN';
+                    document.getElementById('anomaly-risk').textContent = '0';
                     
-                    container.innerHTML = html;
+                    document.getElementById('sys-cpu').textContent = '15.2%';
+                    document.getElementById('sys-mem').textContent = '48.7%';
+                    document.getElementById('sys-disk-io').textContent = '5.3%';
+                    document.getElementById('top-sys-consumers').textContent = 'System Idle, Chrome, VSCode';
+                }
+            }, 1000);
+            
+            // Load ML stats on initial load
+            updateMLStatsDisplay();
+            
+            // Load performance gain data on initial load
+            updatePerformanceGainDisplay();
+        });
+        
+        // Update ML stats display
+        async function updateMLStatsDisplay() {
+            try {
+                const response = await fetch('/api/ml/model/stats');
+                if (response.ok) {
+                    const stats = await response.json();
+                    updateMLStats(stats);
                 }
             } catch (error) {
-                container.innerHTML = `<div class="alert alert-error">Error: ${error.message}</div>`;
+                console.error('Error fetching ML stats:', error);
+                // Show error state
+                const container = document.getElementById('mlStats');
+                container.innerHTML = '<div class="alert alert-warning">Failed to load model stats</div>';
             }
         }
-
-        // Anomaly detection
-        async function checkAnomalies() {
-            const container = document.getElementById('anomalyAlerts');
-            container.innerHTML = '<p>Scanning for security anomalies...</p>';
-            
+        
+        // Update performance gain display
+        async function updatePerformanceGainDisplay() {
             try {
-                const metricsResponse = await fetch('/api/metrics');
-                const metricsData = await metricsResponse.json();
-                
-                if (metricsData.status !== 'success' || !metricsData.metrics) {
-                    container.innerHTML = '<div class="alert alert-warning">No metrics data available</div>';
-                    return;
+                const response = await fetch('/api/performance/gain');
+                if (response.ok) {
+                    const data = await response.json();
+                    updatePerformanceGain(data);
                 }
+            } catch (error) {
+                console.error('Error fetching performance gain data:', error);
+                // Show error state
+                const container = document.getElementById('optimizationRecs');
+                container.innerHTML = '<div class="alert alert-warning">Failed to load optimization recommendations</div>';
+            }
+        }
+        
+        // Update performance gain visualization
+        function updatePerformanceGain(data) {
+            const container = document.getElementById('optimizationRecs');
+            if (data.status === 'success' && data.recommendations) {
+                const metrics = data.aggregate_metrics;
+                const recommendations = data.recommendations;
                 
-                const response = await fetch('/api/anomaly', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ metrics: metricsData.metrics })
+                let html = `
+                    <div class="metric-cards">
+                        <div class="metric-card">
+                            <div class="metric-label">Average Speedup</div>
+                            <div class="metric-value">${metrics.average_speedup}x</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Maximum Speedup</div>
+                            <div class="metric-value">${metrics.maximum_speedup}x</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Total Recommendations</div>
+                            <div class="metric-value">${metrics.total_recommendations}</div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 20px;">
+                        <h3>Optimization Techniques</h3>
+                `;
+                
+                recommendations.forEach((rec, index) => {
+                    const confidenceColor = rec.confidence > 0.8 ? 'var(--primary)' : rec.confidence > 0.6 ? 'var(--warning)' : 'var(--critical)';
+                    const effortColor = rec.estimated_effort === 'Low' ? 'var(--primary)' : rec.estimated_effort === 'Medium' ? 'var(--warning)' : 'var(--critical)';
+                    
+                    html += `
+                        <div class="optimization-card">
+                            <h4>${rec.technique}</h4>
+                            <div style="display: flex; justify-content: space-between; margin: 10px 0;">
+                                <div><strong>Predicted Speedup:</strong> <span style="color: ${'var(--primary)'}; font-size: 18px;">${rec.predicted_speedup}x</span></div>
+                                <div><strong>Confidence:</strong> <span style="color: ${confidenceColor};">${Math.round(rec.confidence * 100)}%</span></div>
+                                <div><strong>Effort:</strong> <span style="color: ${effortColor};">${rec.estimated_effort}</span></div>
+                            </div>
+                            <p>${rec.description}</p>
+                            <button onclick="applyRecommendation(${index})" class="btn" style="margin-top: 10px;">Apply Recommendation</button>
+                        </div>
+                    `;
                 });
                 
-                const data = await response.json();
+                html += `
+                    </div>
+                    <div style="margin-top: 15px; font-size: 12px; color: var(--accent);">
+                        <strong>Method:</strong> ${data.model_info.prediction_method}<br>
+                        <strong>Last Updated:</strong> ${new Date(data.timestamp).toLocaleString()}
+                    </div>
+                `;
                 
-                if (data.status === 'success' && data.results) {
-                    const results = data.results;
-                    let html = '';
-                    
-                    if (results.anomalies_detected === 0) {
-                        html = '<div class="alert alert-success">✅ No security anomalies detected</div>';
-                    } else {
-                        html = `<div class="alert alert-warning">
-                            <strong>🚨 ${results.anomalies_detected} anomaly/anomalies detected!</strong>
-                        </div>`;
-                    }
-                    
-                    if (results.alerts) {
-                        results.alerts.forEach(alert => {
-                            const alertClass = alert.type === 'warning' ? 'alert-warning' : 
-                                             alert.type === 'error' ? 'alert-error' : 'alert-info';
-                            html += `<div class="alert ${alertClass}">
-                                <strong>${alert.type.toUpperCase()}:</strong> ${alert.message}
-                                ${alert.severity ? `<br><small>Severity: ${alert.severity}</small>` : ''}
-                            </div>`;
-                        });
-                    }
-                    
-                    if (results.warning) {
-                        html += `<div class="alert alert-info">ℹ️ ${results.warning}</div>`;
-                    }
-                    
-                    container.innerHTML = html;
+                container.innerHTML = html;
+                
+                // Update performance gain chart if it exists
+                if (performanceGainChart && data.recommendations.length >= 3) {
+                    const chartData = performanceGainChart.data;
+                    chartData.labels = data.recommendations.slice(0, 3).map(r => r.technique);
+                    chartData.datasets[0].data = data.recommendations.slice(0, 3).map(r => r.predicted_speedup);
+                    performanceGainChart.update();
                 }
-            } catch (error) {
-                container.innerHTML = `<div class="alert alert-error">Error: ${error.message}</div>`;
+            } else {
+                container.innerHTML = '<div class="alert alert-info">Loading optimization recommendations...</div>';
             }
         }
-
-        // Initial load
-        document.addEventListener('DOMContentLoaded', function() {
-            refreshDashboard();
-            // Auto-refresh every 10 seconds
-            setInterval(refreshDashboard, 10000);
-        });
     </script>
 </body>
 </html>
-
