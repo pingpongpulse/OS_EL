@@ -23,6 +23,7 @@ from phaseprofiler import PhasProfiler
 from deadlock_detector_new import DeadlockDetector
 from anomaly_detector import AnomalyDetector
 from recommender import OptimizationRecommender
+from bottleneck_classifier import BottleneckClassifier
 
 # Initialize Flask app with SocketIO
 app = Flask(__name__, 
@@ -125,6 +126,11 @@ os.makedirs(MODELS_FOLDER, exist_ok=True)
 # Initialize detectors and recommenders
 anomaly_detector = AnomalyDetector()
 recommender = OptimizationRecommender()
+# Bottleneck classifier (loads regression_model.pkl if available)
+try:
+    bottleneck_classifier = BottleneckClassifier()
+except Exception:
+    bottleneck_classifier = None
 
 
 def allowed_file(filename):
@@ -732,6 +738,92 @@ def classify_bottlenecks():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/profile/<int:pid>/bottleneck', methods=['GET'])
+def profile_bottleneck(pid):
+    """Return bottleneck classification for a PID using regression model (if available)."""
+    try:
+        if pid not in profile_data or not profile_data[pid]:
+            return jsonify({'status': 'success', 'bottlenecks': [], 'message': 'No metrics available for this PID'}), 200
+
+        metrics = profile_data[pid]
+
+        if bottleneck_classifier is None:
+            # Fallback: simple heuristic
+            from bottleneck_classifier import BottleneckClassifier as _BC
+            bc = _BC()
+            results = bc.classify(metrics)
+        else:
+            results = bottleneck_classifier.classify(metrics)
+
+        return jsonify({'status': 'success', 'pid': pid, 'bottlenecks': results})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
+@app.route('/api/profile/<int:pid>/waitfor', methods=['GET'])
+def get_waitfor_graph(pid):
+    """Return a simple wait-for graph structure (nodes, edges) for visualization."""
+    try:
+        nodes = []
+        edges = []
+
+        # If historical deadlock cycles exist, derive graph from them
+        if pid in active_profiles and active_profiles[pid].get('deadlocks'):
+            deadlocks = active_profiles[pid].get('deadlocks', [])
+            for d in deadlocks:
+                cycles = d.get('cycles') or d.get('cycles', [])
+                for cycle in cycles:
+                    # cycle is list of nodes
+                    for n in cycle:
+                        if n not in nodes:
+                            nodes.append(n)
+                    for i in range(len(cycle)):
+                        a = cycle[i]
+                        b = cycle[(i + 1) % len(cycle)]
+                        edges.append({'source': a, 'target': b})
+
+        # If no deadlocks, create lightweight graph from process tree
+        if not nodes:
+            try:
+                p = None
+                import psutil
+                p = psutil.Process(pid)
+                nodes.append({'id': pid, 'label': p.name()})
+                # add children as nodes
+                for child in p.children(recursive=False):
+                    nodes.append({'id': child.pid, 'label': child.name()})
+                    edges.append({'source': pid, 'target': child.pid})
+            except Exception:
+                # Return empty graph structure
+                pass
+
+        return jsonify({'status': 'success', 'pid': pid, 'nodes': nodes, 'edges': edges})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
+@app.route('/api/profile/<int:pid>/threat', methods=['GET'])
+def profile_threat_classify(pid):
+    """Run anomaly model on latest metrics and return predicted anomaly class/alerts."""
+    try:
+        if pid not in profile_data or not profile_data[pid]:
+            return jsonify({'status': 'success', 'pid': pid, 'predicted': 'none', 'alerts': []})
+
+        latest_metrics = profile_data[pid][-20:]  # last 20 samples
+
+        # Use existing anomaly_detector instance
+        results = anomaly_detector.detect_anomalies(latest_metrics)
+
+        # Interpret prediction
+        predicted = 'normal'
+        if results.get('anomalies_detected', 0) > 0:
+            predicted = 'anomalous'
+
+        return jsonify({'status': 'success', 'pid': pid, 'predicted': predicted, 'alerts': results.get('alerts', [])})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
 
 
 @app.route('/api/deadlock', methods=['GET', 'POST'])

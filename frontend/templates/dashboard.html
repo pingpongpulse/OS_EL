@@ -374,7 +374,7 @@
                 <input type="text" id="programPath" placeholder="Enter program file path (e.g., ../backend/simulations/leaky.py)">
                 <input type="number" id="profilingDuration" placeholder="Duration (seconds)" min="1" max="300" value="60" style="width: 120px;">
                 <button id="startProfiling" class="btn">Start Profiling</button>
-                <button id="stopProfiling" class="btn btn-stop">Stop Profiling</button>
+                <button id="stopProfiling" class="btn btn-stop" style="display:none;">Stop Profiling</button>
                 <div class="status-indicator status-idle" id="statusIndicator">Idle</div>
                 <div id="timerDisplay" style="margin-left: 10px; color: var(--primary); font-size: 14px; font-weight: bold; display: none;">Time left: --:--</div>
                 <div id="programInfo" style="margin-left: 10px; color: var(--accent); font-size: 14px;"></div>
@@ -705,8 +705,8 @@
             if (remaining <= 0) {
                 clearInterval(profilingTimer);
                 timerDisplay.style.display = 'none';
-                // Optionally stop profiling when timer reaches 0
-                document.getElementById('stopProfiling').click();
+                // Profiling duration reached; trigger post-profiling updates
+                onProfilingDurationComplete();
             }
         }
         
@@ -777,50 +777,17 @@
         });
         
         // Stop profiling handler
-        document.getElementById('stopProfiling').addEventListener('click', async () => {
-            if (currentPid) {
-                try {
-                    const response = await fetch('/api/profile/stop', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' }
-                    });
-                    
-                    if (response.ok) {
-                        // Update status
-                        const statusEl = document.getElementById('statusIndicator');
-                        statusEl.className = 'status-indicator status-idle';
-                        statusEl.textContent = 'Idle';
-                        
-                        // Clear timer
-                        if (profilingTimer) {
-                            clearInterval(profilingTimer);
-                            profilingTimer = null;
-                        }
-                        
-                        // Hide timer display
-                        const timerDisplay = document.getElementById('timerDisplay');
-                        timerDisplay.style.display = 'none';
-                        
-                        // Close WebSocket connection
-                        if (wsConnection) {
-                            wsConnection.close();
-                            wsConnection = null;
-                        }
-                        
-                        currentPid = null;
-                        document.getElementById('programInfo').textContent = '';
-                        stopUptimeCounter();
-                        
-                        // Clear metrics
-                        clearMetrics();
-                    } else {
-                        throw new Error(await response.text());
-                    }
-                } catch (error) {
-                    console.error('Error stopping profiling:', error);
+        // Stop button is intentionally hidden. Stop API remains available server-side.
+        const stopBtn = document.getElementById('stopProfiling');
+        if (stopBtn) {
+            stopBtn.addEventListener('click', async () => {
+                if (currentPid) {
+                    try {
+                        await fetch('/api/profile/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+                    } catch (e) { console.error(e); }
                 }
-            }
-        });
+            });
+        }
         
         // Clear metrics when profiling stops
         function clearMetrics() {
@@ -947,6 +914,151 @@
                 }
             } catch (error) {
                 console.error('Error updating execution tab:', error);
+            }
+        }
+
+        // Called when profiling duration reaches zero
+        async function onProfilingDurationComplete() {
+            if (!currentPid) return;
+
+            // Poll profile status; once server reports profiling stopped, fetch final analyses
+            try {
+                const statusResp = await fetch(`/api/profile?pid=${currentPid}`);
+                if (statusResp.ok) {
+                    const status = await statusResp.json();
+                    if (!status.is_running) {
+                        // Final updates
+                        updateDashboard();
+                        await updateExecutionTab();
+                        await updateIntelligenceTab();
+
+                        // Fetch bottleneck classification
+                        try {
+                            const bresp = await fetch(`/api/profile/${currentPid}/bottleneck`);
+                            if (bresp.ok) {
+                                const bdata = await bresp.json();
+                                const el = document.getElementById('bottleneckInsights');
+                                if (bdata.bottlenecks && bdata.bottlenecks.length > 0) {
+                                    el.innerHTML = bdata.bottlenecks.map(b => `<div class="alert alert-info"><strong>${b.type}</strong>: ${b.message}</div>`).join('');
+                                } else {
+                                    el.innerHTML = '<div class="alert alert-info">No bottlenecks detected</div>';
+                                }
+                            }
+                        } catch (e) { console.error('Error fetching bottleneck:', e); }
+                        // Fetch threat classification (anomaly model)
+                        try {
+                            const tresp = await fetch(`/api/profile/${currentPid}/threat`);
+                            if (tresp.ok) {
+                                const tdata = await tresp.json();
+                                const tc = document.getElementById('threatClassification');
+                                if (tdata.predicted && tdata.predicted === 'anomalous') {
+                                    tc.innerHTML = `<div class="alert alert-critical"><strong>Predicted Anomaly:</strong> Anomalous</div>` + (tdata.alerts && tdata.alerts.length ? tdata.alerts.slice(0,3).map(a => `<div class="alert alert-warning">${a.message}</div>`).join('') : '');
+                                } else {
+                                    tc.innerHTML = `<div class="alert alert-info"><strong>Predicted:</strong> Normal</div>`;
+                                }
+                                // Update alert feed as well
+                                if (tdata.alerts) updateAlertFeed(tdata.alerts);
+                            }
+                        } catch (e) { console.error('Error fetching threat classification:', e); }
+                    } else {
+                        // If still running, retry shortly
+                        setTimeout(onProfilingDurationComplete, 1000);
+                    }
+                }
+            } catch (e) {
+                console.error('Error checking profile status:', e);
+            }
+        }
+
+        // Render a simple wait-for graph using d3 (fallbacks to text if rendering fails)
+        function renderWaitForGraph(graph) {
+            const container = document.getElementById('deadlockGraph');
+            if (!container) return;
+            container.innerHTML = '';
+
+            try {
+                const width = container.clientWidth || 600;
+                const height = container.clientHeight || 300;
+
+                const svg = d3.select(container).append('svg')
+                    .attr('width', width)
+                    .attr('height', height);
+
+                const nodes = (graph.nodes || []).map(n => (typeof n === 'object' ? n : { id: n }));
+                const links = (graph.edges || []).map(e => ({ source: e.source, target: e.target }));
+
+                const simulation = d3.forceSimulation(nodes)
+                    .force('charge', d3.forceManyBody().strength(-200))
+                    .force('center', d3.forceCenter(width / 2, height / 2))
+                    .force('link', d3.forceLink(links).id(d => d.id).distance(80))
+                    .on('tick', ticked);
+
+                const link = svg.append('g')
+                    .attr('stroke', '#999')
+                    .selectAll('line')
+                    .data(links)
+                    .join('line')
+                    .attr('stroke-width', 1.5);
+
+                const node = svg.append('g')
+                    .attr('stroke', '#fff')
+                    .attr('stroke-width', 1.5)
+                    .selectAll('circle')
+                    .data(nodes)
+                    .join('circle')
+                    .attr('r', 12)
+                    .attr('fill', '#64ffda')
+                    .call(drag(simulation));
+
+                const label = svg.append('g')
+                    .selectAll('text')
+                    .data(nodes)
+                    .join('text')
+                    .text(d => d.label || d.id)
+                    .attr('font-size', 10)
+                    .attr('fill', '#fff');
+
+                function ticked() {
+                    link
+                        .attr('x1', d => d.source.x)
+                        .attr('y1', d => d.source.y)
+                        .attr('x2', d => d.target.x)
+                        .attr('y2', d => d.target.y);
+
+                    node
+                        .attr('cx', d => d.x)
+                        .attr('cy', d => d.y);
+
+                    label
+                        .attr('x', d => d.x + 14)
+                        .attr('y', d => d.y + 4);
+                }
+
+                function drag(simulation){
+                    function dragstarted(event) {
+                        if (!event.active) simulation.alphaTarget(0.3).restart();
+                        event.subject.fx = event.subject.x;
+                        event.subject.fy = event.subject.y;
+                    }
+
+                    function dragged(event) {
+                        event.subject.fx = event.x;
+                        event.subject.fy = event.y;
+                    }
+
+                    function dragended(event) {
+                        if (!event.active) simulation.alphaTarget(0);
+                        event.subject.fx = null;
+                        event.subject.fy = null;
+                    }
+
+                    return d3.drag()
+                        .on('start', dragstarted)
+                        .on('drag', dragged)
+                        .on('end', dragended);
+                }
+            } catch (e) {
+                container.innerText = 'Unable to render wait-for graph: ' + e.message;
             }
         }
         
