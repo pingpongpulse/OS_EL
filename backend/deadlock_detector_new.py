@@ -136,24 +136,50 @@ class DeadlockDetector:
                 'error': str(e)
             }
     
-    def analyze_deadlock_risk(self):
+    def analyze_deadlock_risk(self, pid=None):
         """
         Comprehensive deadlock risk analysis.
         
+        Args:
+            pid: Optional process ID to analyze threads for potential deadlocks
+            
         Returns:
             dict: Detailed analysis including risk level and recommendations
         """
         detection_result = self.detect()
         
+        # If a PID is provided, analyze thread states for potential deadlocks
+        thread_deadlock_detected = False
+        if pid is not None:
+            try:
+                import psutil
+                proc = psutil.Process(pid)
+                # Check for blocked threads
+                num_threads = proc.num_threads()
+                
+                # A simple heuristic: if process has many threads and is consuming minimal CPU
+                # but high memory, it might indicate threads are blocked/deadlocked
+                cpu_usage = proc.cpu_percent(interval=0.1)
+                memory_usage = proc.memory_percent()
+                
+                # If many threads but low CPU and high memory = potential deadlock
+                if num_threads > 8 and cpu_usage < 5 and memory_usage > 50:
+                    thread_deadlock_detected = True
+            except:
+                pass
+        
         # Determine risk level
-        if len(detection_result['cycles']) == 0:
+        has_cycles = detection_result['risk'] or thread_deadlock_detected
+        
+        if not has_cycles and len(detection_result['cycles']) == 0:
             risk_level = 'low'
             recommendations = []
-        elif len(detection_result['cycles']) <= 2:
+        elif len(detection_result['cycles']) <= 2 or (thread_deadlock_detected and not detection_result['risk']):
             risk_level = 'medium'
             recommendations = [
                 'Review lock ordering in critical sections',
-                'Consider using timeouts on lock acquisitions'
+                'Consider using timeouts on lock acquisitions',
+                'Monitor thread states for blocking operations'
             ]
         else:
             risk_level = 'high'
@@ -161,18 +187,23 @@ class DeadlockDetector:
                 'CRITICAL: Potential deadlock detected!',
                 'Implement lock timeout mechanisms',
                 'Use lock-free data structures where possible',
-                'Review thread synchronization logic'
+                'Review thread synchronization logic',
+                'Check for circular lock dependencies'
             ]
         
         return {
             'timestamp': datetime.now().isoformat(),
             'risk_level': risk_level,
-            'has_cycles': detection_result['risk'],
+            'has_cycles': has_cycles,
             'cycle_count': len(detection_result['cycles']),
             'cycles': detection_result['cycles'][:5],  # First 5 cycles
             'lock_count': len(self.locks),
             'acquisition_count': len(self.acquisitions),
-            'recommendations': recommendations
+            'recommendations': recommendations,
+            'thread_analysis': {
+                'detected_from_thread_states': thread_deadlock_detected,
+                'method': 'Graph cycle detection + thread state analysis'
+            }
         }
     
     def save_lock_logs(self, filepath='data/lock_logs.json'):

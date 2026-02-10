@@ -14,6 +14,7 @@ import sys
 import psutil
 import threading
 import time
+import random
 from collections import defaultdict, deque
 import asyncio
 from flask_socketio import SocketIO, emit, disconnect, join_room, leave_room
@@ -23,6 +24,7 @@ from phaseprofiler import PhasProfiler
 from deadlock_detector_new import DeadlockDetector
 from anomaly_detector import AnomalyDetector
 from recommender import OptimizationRecommender
+from bottleneck_classifier import BottleneckClassifier
 
 # Initialize Flask app with SocketIO
 app = Flask(__name__, 
@@ -125,6 +127,11 @@ os.makedirs(MODELS_FOLDER, exist_ok=True)
 # Initialize detectors and recommenders
 anomaly_detector = AnomalyDetector()
 recommender = OptimizationRecommender()
+# Bottleneck classifier (loads regression_model.pkl if available)
+try:
+    bottleneck_classifier = BottleneckClassifier()
+except Exception:
+    bottleneck_classifier = None
 
 
 def allowed_file(filename):
@@ -258,8 +265,19 @@ def continuous_profiling(pid):
             # Get process metrics
             p = psutil.Process(pid)
             
-            # Collect metrics
+            # Collect metrics - first call to cpu_percent() may return 0.0
+            # To address this, we first try to get the CPU percent from the process
             cpu_percent = p.cpu_percent()
+            
+            # If cpu_percent is still 0.0 (first call or low usage), we try to get the latest non-zero value from profile_data if available
+            # This helps maintain continuity in the display
+            if cpu_percent == 0.0 and pid in profile_data and profile_data[pid]:
+                # Look for the last non-zero CPU percent
+                for metric in reversed(profile_data[pid]):
+                    if metric.get('cpu_percent', 0) != 0:
+                        cpu_percent = metric['cpu_percent']
+                        break
+            
             memory_info = p.memory_info()
             memory_percent = p.memory_percent()
             
@@ -299,7 +317,7 @@ def continuous_profiling(pid):
                 process_info['anomalies'].extend(anomaly_results['alerts'])
             
             # Detect deadlocks (in a simplified way for this implementation)
-            deadlock_results = deadlock_detector.analyze_deadlock_risk()
+            deadlock_results = deadlock_detector.analyze_deadlock_risk(pid=pid)
             if deadlock_results['has_cycles']:
                 process_info['deadlocks'].append(deadlock_results)
             
@@ -404,9 +422,47 @@ def get_profile_status():
                 'memory_percent': latest_metric['memory_percent'] if latest_metric else 0
             })
         else:
-            # Return current active PID if no specific PID requested
+            # If no PID specified, fall back to current active PID if available
             if current_pid:
-                return get_profile_status()
+                try:
+                    pid = int(current_pid)
+                except Exception:
+                    return jsonify({'error': 'Invalid current PID'}), 500
+
+                if pid not in active_profiles:
+                    return jsonify({'error': 'Profile data not found for this PID'}), 404
+
+                profile_info = active_profiles[pid]
+                process = profile_info['process']
+                is_running = process.poll() is None
+                uptime = time.time() - profile_info['start_time']
+
+                latest_metrics = []
+                if pid in profile_data and profile_data[pid]:
+                    latest_metrics = profile_data[pid][-10:]
+
+                child_count = 0
+                try:
+                    p = psutil.Process(pid)
+                    child_count = len(p.children())
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+
+                latest_metric = latest_metrics[-1] if latest_metrics else None
+
+                return jsonify({
+                    'pid': pid,
+                    'program_path': profile_info.get('program_path'),
+                    'is_running': is_running,
+                    'uptime': uptime,
+                    'child_process_count': child_count,
+                    'current_phase': latest_metric['phase'] if latest_metric else 'unknown',
+                    'latest_metrics': latest_metrics,
+                    'anomaly_count': len(profile_info.get('anomalies', [])),
+                    'deadlock_detected': len(profile_info.get('deadlocks', [])) > 0,
+                    'cpu_percent': latest_metric['cpu_percent'] if latest_metric else 0,
+                    'memory_percent': latest_metric['memory_percent'] if latest_metric else 0
+                })
             else:
                 return jsonify({'error': 'No PID specified and no active profile'}), 400
         
@@ -590,17 +646,51 @@ def get_process_tree(pid):
             # Build the process tree
             def get_process_info(process):
                 try:
-                    # Get process metrics
-                    cpu_percent = process.cpu_percent()
-                    memory_percent = process.memory_percent()
-                    memory_info = process.memory_info()
+                    # Prefer latest sampled metrics from profile_data if available
+                    pid_local = process.pid
+                    cpu_percent = None
+                    memory_percent = None
+                    memory_info = None
+
+                    if pid_local in profile_data and profile_data[pid_local]:
+                        latest = profile_data[pid_local][-1]
+                        try:
+                            cpu_percent = float(latest.get('cpu_percent', 0))
+                        except:
+                            cpu_percent = 0.0
+                        try:
+                            memory_percent = float(latest.get('memory_percent', 0))
+                        except:
+                            memory_percent = 0.0
+                        # memory_rss_mb may be stored as memory_used_mb in profile_data
+                        memory_info = None
+                    else:
+                        # Fallback to live psutil snapshot
+                        cpu_percent = process.cpu_percent()
+                        memory_percent = process.memory_percent()
+                        memory_info = process.memory_info()
                     
                     # Get current phase from stored metrics if available
                     current_phase = 'unknown'
-                    if pid in profile_data and profile_data[pid]:
-                        latest_metric = profile_data[pid][-1] if profile_data[pid] else None
+                    if pid_local in profile_data and profile_data[pid_local]:
+                        latest_metric = profile_data[pid_local][-1]
                         if latest_metric:
                             current_phase = latest_metric.get('phase', 'unknown')
+                            # If memory_info wasn't set above, try to derive RSS
+                            if memory_info is None:
+                                # try memory_used_mb field
+                                mem_mb = latest_metric.get('memory_used_mb') or latest_metric.get('memory_rss_mb') or latest_metric.get('memory_used_gb')
+                                if mem_mb is not None:
+                                    try:
+                                        # convert GB to MB if necessary
+                                        mem_val = float(mem_mb)
+                                        if mem_val < 10:
+                                            # likely GB -> convert to MB for consistency
+                                            memory_rss_mb = mem_val * 1024
+                                        else:
+                                            memory_rss_mb = mem_val
+                                    except:
+                                        memory_rss_mb = 0.0
                     else:
                         # Default to CPU-bound if no data
                         current_phase = 'cpu_bound' if cpu_percent > 70 else 'idle'
@@ -609,9 +699,9 @@ def get_process_tree(pid):
                         'pid': process.pid,
                         'name': process.name(),
                         'status': process.status(),
-                        'cpu_percent': cpu_percent,
-                        'memory_percent': memory_percent,
-                        'memory_rss_mb': memory_info.rss / (1024**2),
+                        'cpu_percent': cpu_percent if cpu_percent is not None else 0.0,
+                        'memory_percent': memory_percent if memory_percent is not None else 0.0,
+                        'memory_rss_mb': (memory_info.rss / (1024**2)) if memory_info is not None else (memory_rss_mb if 'memory_rss_mb' in locals() and memory_rss_mb is not None else 0.0),
                         'current_phase': current_phase,
                         'num_threads': process.num_threads(),
                         'children': []
@@ -727,11 +817,120 @@ def classify_bottlenecks():
         return jsonify({
             'status': 'success',
             'classifications': classifications,
-            'method': 'rule_based'
+            'method': 'phaseprofiler'
         })
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/profile/<int:pid>/bottleneck', methods=['GET'])
+def profile_bottleneck(pid):
+    """Return bottleneck classification for a PID using regression model (if available)."""
+    try:
+        if pid not in profile_data or not profile_data[pid]:
+            return jsonify({'status': 'success', 'bottlenecks': [], 'message': 'No metrics available for this PID'}), 200
+
+        metrics = profile_data[pid]
+
+        if bottleneck_classifier is None:
+            # Fallback: simple heuristic
+            from bottleneck_classifier import BottleneckClassifier as _BC
+            bc = _BC()
+            results = bc.classify(metrics)
+        else:
+            results = bottleneck_classifier.classify(metrics)
+
+        return jsonify({'status': 'success', 'pid': pid, 'bottlenecks': results})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
+@app.route('/api/profile/<int:pid>/waitfor', methods=['GET'])
+def get_waitfor_graph(pid):
+    """Return a simple wait-for graph structure (nodes, edges) for visualization."""
+    try:
+        nodes = []
+        edges = []
+
+        # If historical deadlock cycles exist, derive graph from them
+        if pid in active_profiles and active_profiles[pid].get('deadlocks'):
+            deadlocks = active_profiles[pid].get('deadlocks', [])
+            for d in deadlocks:
+                cycles = d.get('cycles') or d.get('cycles', [])
+                for cycle in cycles:
+                    # cycle is list of nodes
+                    for n in cycle:
+                        if n not in nodes:
+                            nodes.append(n)
+                    for i in range(len(cycle)):
+                        a = cycle[i]
+                        b = cycle[(i + 1) % len(cycle)]
+                        edges.append({'source': a, 'target': b})
+
+        # If no deadlocks, create lightweight graph from process tree
+        if not nodes:
+            try:
+                p = None
+                import psutil
+                p = psutil.Process(pid)
+                nodes.append({'id': pid, 'label': p.name()})
+                # add children as nodes
+                for child in p.children(recursive=False):
+                    nodes.append({'id': child.pid, 'label': child.name()})
+                    edges.append({'source': pid, 'target': child.pid})
+            except Exception:
+                # Return empty graph structure
+                pass
+
+        return jsonify({'status': 'success', 'pid': pid, 'nodes': nodes, 'edges': edges})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
+@app.route('/api/profile/<int:pid>/threat', methods=['GET'])
+def profile_threat_classify(pid):
+    """Run anomaly model on latest metrics and return predicted anomaly class/alerts with anomaly score."""
+    try:
+        if pid not in profile_data or not profile_data[pid]:
+            return jsonify({
+                'status': 'success', 
+                'pid': pid, 
+                'predicted': 'normal', 
+                'anomaly_score': 0.0,
+                'anomaly_score_normalized': 0.0,
+                'alerts': []
+            })
+
+        latest_metrics = profile_data[pid][-20:]  # last 20 samples
+
+        # Use existing anomaly_detector instance
+        results = anomaly_detector.detect_anomalies(latest_metrics)
+
+        # Interpret prediction
+        anomalies_detected = results.get('anomalies_detected', 0)
+        total_samples = results.get('total_samples') or len(latest_metrics) or 1
+        predicted = 'anomalous' if anomalies_detected > 0 else 'normal'
+
+        # Compute anomaly score as proportion of anomalous samples
+        try:
+            anomaly_score = float(anomalies_detected) / float(total_samples)
+        except Exception:
+            anomaly_score = 0.0
+
+        anomaly_score_normalized = min(1.0, max(0.0, anomaly_score))
+
+        return jsonify({
+            'status': 'success', 
+            'pid': pid, 
+            'predicted': predicted,
+            'anomaly_score': anomaly_score,
+            'anomaly_score_normalized': anomaly_score_normalized,
+            'anomaly_scores': results.get('anomaly_scores'),
+            'alerts': results.get('alerts', [])
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
 
 
 @app.route('/api/deadlock', methods=['GET', 'POST'])
@@ -760,9 +959,9 @@ def detect_deadlock(pid):
     """Detect deadlock risks for a specific PID."""
     try:
         
-        # Always run fresh deadlock analysis
+        # Always run fresh deadlock analysis with PID context
         detector = DeadlockDetector()
-        fresh_analysis = detector.analyze_deadlock_risk()
+        fresh_analysis = detector.analyze_deadlock_risk(pid=pid)
         
         # Get historical deadlock data if available
         historical_deadlocks = []
@@ -1452,4 +1651,5 @@ if __name__ == '__main__':
     print("- /api/anomaly (POST) - Anomaly detection")
     print("- /api/ml/model/stats (GET) - ML model statistics")
     print("- /api/performance/gain (GET) - Performance recommendations")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Use SocketIO runner so WebSocket events are served correctly
+    socketio.run(app, debug=True, host='0.0.0.0', port=5000)

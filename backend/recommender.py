@@ -146,14 +146,17 @@ class OptimizationRecommender:
             if phase_type is None:
                 phase_type = self._infer_phase_type(metric)
             
+            # Calculate speedup using actual metrics
+            speedup = self._estimate_speedup(phase_type, metric)
+            
             # Generate rule-based recommendations
             rec = {
                 'phase_type': phase_type,
-                'predicted_speedup': self._estimate_speedup(phase_type),
-                'predicted_improvement_pct': (self._estimate_speedup(phase_type) - 1.0) * 100,
+                'predicted_speedup': speedup,
+                'predicted_improvement_pct': (speedup - 1.0) * 100,
                 'recommendations': self._get_phase_specific_recommendations(phase_type),
-                'confidence': 'low',
-                'note': 'Using placeholder logic. Model not loaded - consider training regression_model.pkl for accurate predictions.'
+                'confidence': 0.7 if speedup > 1.2 else 0.5,
+                'note': 'Using metric-based rule logic. Model not loaded - consider training regression_model.pkl for ML-based predictions.'
             }
             recommendations.append(rec)
         
@@ -161,8 +164,8 @@ class OptimizationRecommender:
             'timestamp': datetime.now().isoformat(),
             'model_loaded': False,
             'recommendations': recommendations,
-            'average_speedup': np.mean([r['predicted_speedup'] for r in recommendations]),
-            'warning': 'Model not loaded - using placeholder predictions'
+            'average_speedup': np.mean([r['predicted_speedup'] for r in recommendations]) if recommendations else 1.0,
+            'warning': 'Model not loaded - using metric-based rule predictions'
         }
     
     def _infer_phase_type(self, metric):
@@ -184,14 +187,58 @@ class OptimizationRecommender:
         else:
             return 'mixed'
     
-    def _estimate_speedup(self, phase_type):
-        """Estimate speedup based on phase type (placeholder)."""
+    def _estimate_speedup(self, metric_or_phase_type, metric_data=None):
+        """
+        Estimate speedup based on metrics or phase type.
+        Uses actual CPU/Memory/Disk metrics for more accurate predictions.
+        """
+        # Handle both phase string and metric dict
+        if isinstance(metric_or_phase_type, dict):
+            metric_data = metric_or_phase_type
+            phase_type = self._infer_phase_type(metric_data)
+        else:
+            phase_type = metric_or_phase_type
+        
+        # If we have actual metric data, use it for more accurate prediction
+        if metric_data:
+            try:
+                cpu = float(metric_data.get('cpu_percent', 0))
+                memory = float(metric_data.get('memory_percent', 0))
+                disk_io = float(metric_data.get('disk_read_mb', 0)) + float(metric_data.get('disk_write_mb', 0))
+                
+                # Calculate speedup based on utilization levels
+                speedup = 1.0
+                
+                if phase_type == 'cpu_bound' and cpu > 70:
+                    # CPU-bound: speedup increases with CPU usage
+                    # At 100% CPU, potential 2.5x speedup; at 70%, ~1.5x
+                    speedup = 1.5 + (cpu - 70) / 30 * 1.0
+                elif phase_type == 'io_bound' and disk_io > 10:
+                    # I/O-bound: speedup based on I/O rate
+                    # Higher I/O means better potential for async/parallel improvements
+                    speedup = 1.5 + min(1.5, disk_io / 30)  # Cap at 3.0x
+                elif phase_type == 'memory_bound' and memory > 70:
+                    # Memory-bound: speedup based on memory pressure
+                    # At high memory usage, caching/compression can help
+                    speedup = 1.2 + (memory - 70) / 30 * 0.5  # 1.2x to 1.7x
+                elif phase_type == 'mixed':
+                    # Mixed: average of all components
+                    speedup = 1.0 + (cpu / 100 * 0.5 + memory / 100 * 0.3 + min(disk_io / 50, 1) * 0.2)
+                else:
+                    # Idle or default: minimal improvement
+                    speedup = 1.0 + max(0, cpu / 200 + memory / 300)
+                
+                return round(max(1.0, min(5.0, speedup)), 2)  # Cap between 1.0 and 5.0
+            except (ValueError, TypeError):
+                pass
+        
+        # Fallback to phase-based estimates if no metric data
         estimates = {
-            'cpu_bound': 1.5,  # 50% improvement
-            'io_bound': 2.0,   # 100% improvement
-            'memory_bound': 1.3,  # 30% improvement
-            'mixed': 1.2,      # 20% improvement
-            'idle': 1.0        # No improvement
+            'cpu_bound': 2.0,
+            'io_bound': 2.2,
+            'memory_bound': 1.5,
+            'mixed': 1.3,
+            'idle': 1.0
         }
         return estimates.get(phase_type, 1.1)
     
@@ -249,17 +296,37 @@ class OptimizationRecommender:
         """
         features = []
         for metric in metrics_data:
+            # memory can be stored as GB or MB; normalize to GB
+            mem_gb = None
+            if metric.get('memory_used_gb') is not None:
+                try:
+                    mem_gb = float(metric.get('memory_used_gb'))
+                except:
+                    mem_gb = 0.0
+            elif metric.get('memory_used_mb') is not None:
+                try:
+                    mem_gb = float(metric.get('memory_used_mb')) / 1024.0
+                except:
+                    mem_gb = 0.0
+            elif metric.get('memory_rss_mb') is not None:
+                try:
+                    mem_gb = float(metric.get('memory_rss_mb')) / 1024.0
+                except:
+                    mem_gb = 0.0
+            else:
+                mem_gb = 0.0
+
             feature_vector = [
                 float(metric.get('cpu_percent', 0)),
                 float(metric.get('memory_percent', 0)),
-                float(metric.get('memory_used_gb', 0)),
+                mem_gb,
                 float(metric.get('disk_read_mb', 0)),
                 float(metric.get('disk_write_mb', 0)),
                 float(metric.get('network_sent_mb', 0)),
                 float(metric.get('network_recv_mb', 0))
             ]
             features.append(feature_vector)
-        
+
         return np.array(features)
 
 

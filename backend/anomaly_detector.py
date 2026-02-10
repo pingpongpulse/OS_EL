@@ -1,6 +1,6 @@
 """
 Security Anomaly Detector for PhaseSentinel.
-Updated implementation that loads anomaly_model (1).pkl with 5-feature compatibility.
+Updated implementation that loads anomaly_model.pkl with 5-feature compatibility.
 """
 
 import os
@@ -16,7 +16,7 @@ class AnomalyDetector:
         # Use absolute path based on module location
         if model_path is None:
             backend_dir = os.path.dirname(os.path.abspath(__file__))
-            model_path = os.path.join(backend_dir, 'models', 'anomaly_model (1).pkl')
+            model_path = os.path.join(backend_dir, 'models', 'anomaly_model.pkl')
         self.model_path = model_path
         self.model = None
         self.model_loaded = False
