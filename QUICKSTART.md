@@ -25,9 +25,8 @@ cd /path/to/OS_EL
 chmod +x start.sh
 ./start.sh
 ```
-
-Then open: **http://localhost:5000** in your browser
-
+http://localhost:5000
+Then open: **** in your browser
 ## 📖 First Steps
 
 ### 1. View the Dashboard

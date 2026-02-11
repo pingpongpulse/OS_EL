@@ -414,18 +414,7 @@
                         <div class="metric-label">Current Phase</div>
                         <div class="metric-value"><span class="phase-badge" id="current-phase">--</span></div>
                     </div>
-                    <div class="metric-card">
-                        <div class="metric-label">CPU %</div>
-                        <div class="metric-value" id="prog-cpu">--</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Memory %</div>
-                        <div class="metric-value" id="prog-mem">--</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Disk (MB)</div>
-                        <div class="metric-value" id="prog-disk">--</div>
-                    </div>
+
                     <div class="metric-card">
                         <div class="metric-label">Anomaly Score</div>
                         <div class="metric-value" id="anomaly-score">--</div>
@@ -495,7 +484,6 @@
                             <th>CPU %</th>
                             <th>Memory %</th>
                             <th>Memory (MB)</th>
-                            <th>Network</th>
                             <th>Threads</th>
                             <th>Phase</th>
                         </tr>
@@ -528,25 +516,15 @@
                         <canvas id="phaseDistributionChart"></canvas>
                     </div>
                 </div>
-                
-                <div class="insight-panel">
-                    <h3>Phase Transition History</h3>
-                    <div id="phaseTransitions">Loading...</div>
-                </div>
-                
-                <div class="insight-panel">
-                    <h3>Bottleneck Insights</h3>
-                    <div id="bottleneckInsights">Analyzing...</div>
-                </div>
             </div>
 
-            <!-- Concurrency Analysis -->
+            <!-- Deadlock Analysis -->
             <div class="card">
-                <h2>Concurrency Analysis</h2>
+                <h2>Deadlock Analysis</h2>
                 
                 <div class="insight-panel">
-                    <h3>Wait-for Graph</h3>
-                    <div class="deadlock-graph" id="deadlockGraph"></div>
+                    <h3>System Safety Status</h3>
+                    <div id="deadlockStatus" class="alert alert-info">Analyzing...</div>
                 </div>
                 
                 <div class="insight-panel">
@@ -556,16 +534,17 @@
                     </div>
                 </div>
                 
-                <div class="insight-panel">
-                    <h3>Suggested Fixes</h3>
-                    <div id="deadlockFixes">No issues detected</div>
+                <div class="insight-panel" id="waitForGraphContainer" style="display: none;">
+                    <h3>Wait-for Graph (Only shown when deadlock detected)</h3>
+                    <div class="deadlock-graph" id="deadlockGraph"></div>
                 </div>
                 
                 <div class="insight-panel">
-                    <h3>Deadlock History</h3>
-                    <div id="deadlockHistory">No deadlocks recorded</div>
+                    <h3>Suggested Actions</h3>
+                    <div id="deadlockFixes">No issues detected</div>
                 </div>
             </div>
+
         </div>
 
         <div id="intelligenceTab" class="tab-content">
@@ -587,31 +566,7 @@
 
 
 
-            <!-- Optimization Recommendations -->
-            <div class="card">
-                <h2>Optimization Recommendations</h2>
-                <div id="optimizationRecs">
-                    <div class="optimization-card">
-                        <div class="alert alert-info">Generating recommendations...</div>
-                    </div>
-                </div>
-            </div>
 
-            <!-- ML Model Stats -->
-            <div class="card">
-                <h2>ML Model Metadata</h2>
-                <div id="mlStats">
-                    <div class="alert alert-info">Loading model stats...</div>
-                </div>
-            </div>
-            
-            <!-- Predicted Performance Gain -->
-            <div class="card">
-                <h2>Predicted Performance Gains</h2>
-                <div class="chart-container">
-                    <canvas id="performanceGainChart"></canvas>
-                </div>
-            </div>
         </div>
     </div>
 
@@ -623,7 +578,6 @@
         let liveMetricsChart = null;
         let phaseDistributionChart = null;
         let anomalyTimelineChart = null;
-        let performanceGainChart = null;
         let uptimeInterval = null;
         let profile_data = {};
 
@@ -830,16 +784,6 @@
                             if (data.threat_classification) {
                                 updateThreatClassification(data.threat_classification);
                             }
-                            
-                            // Update deadlock alerts if available
-                            if (data.deadlock_alerts) {
-                                updateDeadlockInfo(data.deadlock_alerts, data.deadlock_graph);
-                            }
-                            
-                            // Update recommendations if available
-                            if (data.recommendations) {
-                                updateOptimizationRecommendations(data.recommendations);
-                            }
                         }
                         
                         // Force update of execution tab to ensure Gantt-style timeline is shown
@@ -995,20 +939,6 @@
                         updateDashboard();
                         await updateExecutionTab();
                         await updateIntelligenceTab();
-
-                        // Fetch bottleneck classification
-                        try {
-                            const bresp = await fetch(`/api/profile/${currentPid}/bottleneck`);
-                            if (bresp.ok) {
-                                const bdata = await bresp.json();
-                                const el = document.getElementById('bottleneckInsights');
-                                if (bdata.bottlenecks && bdata.bottlenecks.length > 0) {
-                                    el.innerHTML = bdata.bottlenecks.map(b => `<div class="alert alert-info"><strong>${b.type}</strong>: ${b.message}</div>`).join('');
-                                } else {
-                                    el.innerHTML = '<div class="alert alert-info">No bottlenecks detected</div>';
-                                }
-                            }
-                        } catch (e) { console.error('Error fetching bottleneck:', e); }
                         // Fetch threat classification (anomaly model)
                         try {
                             const tresp = await fetch(`/api/profile/${currentPid}/threat`);
@@ -1033,6 +963,15 @@
                                 updatePhaseAnalysis(phasesData.phases);
                             }
                         } catch (e) { console.error('Error updating phase analysis:', e); }
+                        
+                        // Fetch and display deadlock analysis
+                        try {
+                            const deadlockResp = await fetch(`/api/profile/${currentPid}/deadlock`);
+                            if (deadlockResp.ok) {
+                                const deadlockData = await deadlockResp.json();
+                                updateDeadlockInfo(deadlockData);
+                            }
+                        } catch (e) { console.error('Error fetching deadlock analysis:', e); }
                     } else {
                         // If still running, retry shortly
                         setTimeout(onProfilingDurationComplete, 1000);
@@ -1043,7 +982,238 @@
             }
         }
 
-        // Render a simple wait-for graph using d3 (fallbacks to text if rendering fails)
+        // Update Intelligence tab
+        async function updateIntelligenceTab() {
+            if (!currentPid) return;
+            
+            try {
+                // Get anomaly timeline
+                const anomalyTimelineResponse = await fetch(`/api/profile/${currentPid}/anomaly/timeline`);
+                if (anomalyTimelineResponse.ok) {
+                    const anomalyData = await anomalyTimelineResponse.json();
+                    updateAnomalyTimeline(anomalyData.anomalies);
+                }
+                
+                // Get anomaly alerts
+                const anomalyAlertsResponse = await fetch(`/api/profile/${currentPid}/anomaly/alerts`);
+                if (anomalyAlertsResponse.ok) {
+                    const alertData = await anomalyAlertsResponse.json();
+                    updateThreatClassification(alertData.alerts);
+                }
+            } catch (error) {
+                console.error('Error updating intelligence tab:', error);
+            }
+        }
+        
+        // Update program metrics display
+        function updateProgramMetrics(data = {}) {
+            document.getElementById('prog-name').textContent = data.program_path ? data.program_path.split('\\').pop().split('/').pop() : '--';
+            document.getElementById('prog-pid').textContent = data.pid || '--';
+            document.getElementById('prog-uptime').textContent = formatDuration(data.uptime || 0);
+
+            document.getElementById('current-phase').textContent = data.current_phase || '--';
+            document.getElementById('anomaly-score').textContent = (data.anomaly_score !== undefined) ? data.anomaly_score.toFixed(2) : (data.anomaly_count || 0);
+            document.getElementById('deadlock-status').textContent = data.deadlock_detected ? 'DETECTED' : 'CLEAN';
+        }
+        
+        // Format duration in seconds to HH:MM:SS
+        function formatDuration(seconds) {
+            const hrs = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        
+        // Update system metrics display
+        function updateSystemMetrics(data = {}) {
+            const sysMetrics = data.system_metrics || {};
+            document.getElementById('sys-cpu').textContent = sysMetrics.cpu_percent ? `${sysMetrics.cpu_percent.toFixed(1)}%` : '--';
+            document.getElementById('sys-mem').textContent = sysMetrics.memory_percent ? `${sysMetrics.memory_percent.toFixed(1)}%` : '--';
+            document.getElementById('sys-disk-io').textContent = sysMetrics.disk_percent ? `${sysMetrics.disk_percent.toFixed(1)}%` : '--';
+            
+            const topProcs = (data.top_processes || []).slice(0, 3).map(p => p.name).join(', ');
+            document.getElementById('top-sys-consumers').textContent = topProcs || '--';
+        }
+        
+        // Update process table
+        function updateProcessTable(processTree) {
+            const tbody = document.getElementById('processTableBody');
+            tbody.innerHTML = '';
+            
+            function addProcessRow(process, level = 0) {
+                const tr = document.createElement('tr');
+                
+                // Apply indentation based on level
+                const indent = '&nbsp;'.repeat(level * 4);
+                
+                tr.innerHTML = `
+                    <td>${process.pid || '--'}</td>
+                    <td>${indent}${process.name || 'Unknown Process'}</td>
+                    <td>${process.cpu_percent !== undefined ? process.cpu_percent.toFixed(1) : '0.0'}%</td>
+                    <td>${process.memory_percent !== undefined ? process.memory_percent.toFixed(1) : '0.0'}%</td>
+                    <td>${process.memory_rss_mb !== undefined ? process.memory_rss_mb.toFixed(1) : '0.0'} MB</td>
+                    <td>${process.num_threads || 0}</td>
+                    <td><span class="phase-badge">${process.current_phase || 'unknown'}</span></td>
+                `;
+                
+                // Make row clickable to select the process
+                tr.onclick = function() {
+                    // Remove previous selection
+                    document.querySelectorAll('#processTableBody tr').forEach(row => {
+                        row.style.backgroundColor = '';
+                    });
+                    
+                    // Highlight selected row
+                    tr.style.backgroundColor = 'rgba(100, 255, 218, 0.2)';
+                    
+                    // Update the main program metrics to show the selected process info
+                    updateSelectedProcessMetrics(process);
+                };
+                
+                tbody.appendChild(tr);
+                
+                // Add children
+                (process.children || []).forEach(child => {
+                    addProcessRow(child, level + 1);
+                });
+            }
+            
+            if (processTree && Object.keys(processTree).length > 0) {
+                addProcessRow(processTree);
+            } else {
+                tbody.innerHTML = '<tr><td colspan="8"><div class="alert alert-info">No process data available. Process may have ended or is not accessible.</div></td></tr>';
+            }
+        }
+        
+        // Global variable to store selected process data for live metrics
+        let selectedProcessData = null;
+        
+        // Update phase analysis (Gantt-style timeline only)
+        function updatePhaseAnalysis(phases) {
+            const timelineDiv = document.getElementById('phaseTimeline');
+            
+            if (phases && phases.length > 0) {
+                // Update phase timeline visualization
+                if (timelineDiv) {
+                    timelineDiv.innerHTML = '';
+                    const timelineContainer = document.createElement('div');
+                    timelineContainer.style.display = 'flex';
+                    timelineContainer.style.flexWrap = 'wrap';
+                    timelineContainer.style.gap = '5px';
+                    
+                    phases.slice(-20).forEach((phase, index) => {
+                        const phaseBlock = document.createElement('div');
+                        phaseBlock.className = 'phase-badge';
+                        phaseBlock.textContent = phase.phase.substring(0, 3).toUpperCase();
+                        phaseBlock.title = `${phase.phase} (${new Date(phase.timestamp * 1000).toLocaleTimeString()})`;
+                        phaseBlock.style.fontSize = '10px';
+                        phaseBlock.style.padding = '2px 4px';
+                        timelineContainer.appendChild(phaseBlock);
+                    });
+                    
+                    timelineDiv.appendChild(timelineContainer);
+                }
+            } else {
+                if (timelineDiv) {
+                    timelineDiv.innerHTML = '<div class="alert alert-info">Phase timeline will appear here once data is collected</div>';
+                }
+            }
+        }
+
+        // Update deadlock info
+        function updateDeadlockInfo(deadlockData) {
+            const statusContainer = document.getElementById('deadlockStatus');
+            const alertsContainer = document.getElementById('deadlockAlerts');
+            const fixesContainer = document.getElementById('deadlockFixes');
+            const graphContainer = document.getElementById('waitForGraphContainer');
+            
+            if (deadlockData && deadlockData.analysis) {
+                const analysis = deadlockData.analysis;
+                
+                // Update system safety status
+                if (analysis.has_cycles) {
+                    statusContainer.innerHTML = `
+                        <div class="alert alert-critical glow">
+                            <strong>⚠ UNSAFE - DEADLOCK DETECTED!</strong><br>
+                            ${analysis.cycle_count} cycle(s) found<br>
+                            Risk Level: ${analysis.risk_level.toUpperCase()}<br>
+                            ${analysis.nodes_in_cycles.length} nodes involved
+                        </div>
+                    `;
+                    // Show wait-for graph only when deadlock is detected
+                    if (graphContainer) {
+                        graphContainer.style.display = 'block';
+                        // Render the wait-for graph
+                        if (deadlockData.graph) {
+                            renderWaitForGraph(deadlockData.graph);
+                        }
+                    }
+                } else {
+                    statusContainer.innerHTML = `
+                        <div class="alert alert-info">
+                            <strong>✓ SAFE - No Deadlocks Detected</strong><br>
+                            Risk Level: ${analysis.risk_level}<br>
+                            ${analysis.total_locks_tracked} locks currently tracked
+                        </div>
+                    `;
+                    // Hide wait-for graph when system is safe
+                    if (graphContainer) {
+                        graphContainer.style.display = 'none';
+                    }
+                }
+                
+                // Update alerts
+                if (analysis.has_cycles) {
+                    alertsContainer.innerHTML = `
+                        <div class="alert alert-critical glow">
+                            <strong>Cycle Detected!</strong><br>
+                            Multiple wait-for cycle(s) detected in the system.<br>
+                            Immediate action required to resolve deadlock condition.
+                        </div>
+                    `;
+                } else {
+                    alertsContainer.innerHTML = `
+                        <div class="alert alert-info">
+                            <strong>No Cycles Detected</strong><br>
+                            System is operating normally with no circular dependencies.
+                        </div>
+                    `;
+                }
+                
+                // Update suggested actions
+                if (fixesContainer) {
+                    if (analysis.has_cycles) {
+                        fixesContainer.innerHTML = `
+                            <div class="alert alert-warning">
+                                <strong>Recommended Actions:</strong><br>
+                                • Implement lock ordering protocol to prevent circular dependencies<br>
+                                • Use timeout-based locks to detect and break potential cycles<br>
+                                • Consider lock-free algorithms or data structures<br>
+                                • Review and refactor thread synchronization patterns<br>
+                                • Implement deadlock recovery mechanisms
+                            </div>
+                        `;
+                    } else {
+                        fixesContainer.innerHTML = `
+                            <div class="alert alert-info">
+                                <strong>Best Practices (Maintain):</strong><br>
+                                • Continue maintaining consistent lock ordering<br>
+                                • Use RAII pattern for automatic lock management<br>
+                                • Monitor lock contention regularly<br>
+                                • Consider async/await alternatives when possible
+                            </div>
+                        `;
+                    }
+                }
+            } else {
+                statusContainer.innerHTML = '<div class="alert alert-info">Analyzing system safety...</div>';
+                alertsContainer.innerHTML = '<div class="alert alert-info">Analyzing for deadlock risks...</div>';
+                if (fixesContainer) fixesContainer.innerHTML = '<div class="alert alert-info">Loading analysis...</div>';
+                if (graphContainer) graphContainer.style.display = 'none';
+            }
+        }
+
+        // Render wait-for graph using d3 (only displayed when deadlock detected)
         function renderWaitForGraph(graph) {
             const container = document.getElementById('deadlockGraph');
             if (!container) return;
@@ -1067,11 +1237,11 @@
                     .on('tick', ticked);
 
                 const link = svg.append('g')
-                    .attr('stroke', '#999')
+                    .attr('stroke', '#ff5555')
                     .selectAll('line')
                     .data(links)
                     .join('line')
-                    .attr('stroke-width', 1.5);
+                    .attr('stroke-width', 2);
 
                 const node = svg.append('g')
                     .attr('stroke', '#fff')
@@ -1080,7 +1250,7 @@
                     .data(nodes)
                     .join('circle')
                     .attr('r', 12)
-                    .attr('fill', '#64ffda')
+                    .attr('fill', '#ff5555')
                     .call(drag(simulation));
 
                 const label = svg.append('g')
@@ -1131,293 +1301,7 @@
                         .on('end', dragended);
                 }
             } catch (e) {
-                container.innerText = 'Unable to render wait-for graph: ' + e.message;
-            }
-        }
-        
-        // Update Intelligence tab
-        async function updateIntelligenceTab() {
-            if (!currentPid) return;
-            
-            try {
-                // Get anomaly timeline
-                const anomalyTimelineResponse = await fetch(`/api/profile/${currentPid}/anomaly/timeline`);
-                if (anomalyTimelineResponse.ok) {
-                    const anomalyData = await anomalyTimelineResponse.json();
-                    updateAnomalyTimeline(anomalyData.anomalies);
-                }
-                
-                // Get anomaly alerts
-                const anomalyAlertsResponse = await fetch(`/api/profile/${currentPid}/anomaly/alerts`);
-                if (anomalyAlertsResponse.ok) {
-                    const alertData = await anomalyAlertsResponse.json();
-                    updateThreatClassification(alertData.alerts);
-
-                }
-                
-                // Get optimization recommendations
-                const optResponse = await fetch(`/api/profile/${currentPid}/optimize`);
-                if (optResponse.ok) {
-                    const optData = await optResponse.json();
-                    updateOptimizationRecommendations(optData.recommendations);
-                }
-                
-                // Get ML stats
-                const mlResponse = await fetch('/api/ml/model/stats');
-                if (mlResponse.ok) {
-                    const mlData = await mlResponse.json();
-                    updateMLStats(mlData);
-                }
-            } catch (error) {
-                console.error('Error updating intelligence tab:', error);
-            }
-        }
-        
-        // Update program metrics display
-        function updateProgramMetrics(data = {}) {
-            document.getElementById('prog-name').textContent = data.program_path ? data.program_path.split('\\').pop().split('/').pop() : '--';
-            document.getElementById('prog-pid').textContent = data.pid || '--';
-            document.getElementById('prog-uptime').textContent = formatDuration(data.uptime || 0);
-
-            document.getElementById('current-phase').textContent = data.current_phase || '--';
-            document.getElementById('anomaly-score').textContent = (data.anomaly_score !== undefined) ? data.anomaly_score.toFixed(2) : (data.anomaly_count || 0);
-            document.getElementById('deadlock-status').textContent = data.deadlock_detected ? 'DETECTED' : 'CLEAN';
-            
-            
-        }
-        
-        // Format duration in seconds to HH:MM:SS
-        function formatDuration(seconds) {
-            const hrs = Math.floor(seconds / 3600);
-            const mins = Math.floor((seconds % 3600) / 60);
-            const secs = Math.floor(seconds % 60);
-            return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-        }
-        
-        // Update system metrics display
-        function updateSystemMetrics(data = {}) {
-            const sysMetrics = data.system_metrics || {};
-            document.getElementById('sys-cpu').textContent = sysMetrics.cpu_percent ? `${sysMetrics.cpu_percent.toFixed(1)}%` : '--';
-            document.getElementById('sys-mem').textContent = sysMetrics.memory_percent ? `${sysMetrics.memory_percent.toFixed(1)}%` : '--';
-            document.getElementById('sys-disk-io').textContent = sysMetrics.disk_percent ? `${sysMetrics.disk_percent.toFixed(1)}%` : '--';
-            
-            const topProcs = (data.top_processes || []).slice(0, 3).map(p => p.name).join(', ');
-            document.getElementById('top-sys-consumers').textContent = topProcs || '--';
-        }
-        
-        // Update process table
-        function updateProcessTable(processTree) {
-            const tbody = document.getElementById('processTableBody');
-            tbody.innerHTML = '';
-            
-            function addProcessRow(process, level = 0) {
-                const tr = document.createElement('tr');
-                
-                // Apply indentation based on level
-                const indent = '&nbsp;'.repeat(level * 4);
-                
-                tr.innerHTML = `
-                    <td>${process.pid || '--'}</td>
-                    <td>${indent}${process.name || 'Unknown Process'}</td>
-                    <td>${process.cpu_percent !== undefined ? process.cpu_percent.toFixed(1) : '0.0'}%</td>
-                    <td>${process.memory_percent !== undefined ? process.memory_percent.toFixed(1) : '0.0'}%</td>
-                    <td>${process.memory_rss_mb !== undefined ? process.memory_rss_mb.toFixed(1) : '0.0'} MB</td>
-                    <td>${process.network_io_mb !== undefined ? process.network_io_mb.toFixed(1) : '--'} MB</td>
-                    <td>${process.num_threads || 0}</td>
-                    <td><span class="phase-badge">${process.current_phase || 'unknown'}</span></td>
-                `;
-                
-                // Make row clickable to select the process
-                tr.onclick = function() {
-                    // Remove previous selection
-                    document.querySelectorAll('#processTableBody tr').forEach(row => {
-                        row.style.backgroundColor = '';
-                    });
-                    
-                    // Highlight selected row
-                    tr.style.backgroundColor = 'rgba(100, 255, 218, 0.2)';
-                    
-                    // Update the main program metrics to show the selected process info
-                    updateSelectedProcessMetrics(process);
-                };
-                
-                tbody.appendChild(tr);
-                
-                // Add children
-                (process.children || []).forEach(child => {
-                    addProcessRow(child, level + 1);
-                });
-            }
-            
-            if (processTree && Object.keys(processTree).length > 0) {
-                addProcessRow(processTree);
-            } else {
-                tbody.innerHTML = '<tr><td colspan="8"><div class="alert alert-info">No process data available. Process may have ended or is not accessible.</div></td></tr>';
-            }
-        }
-        
-        // Global variable to store selected process data for live metrics
-        let selectedProcessData = null;
-
-        // Update metrics display with selected process information
-        function updateSelectedProcessMetrics(process) {
-            // Update the program metrics section with selected process data
-            if (process) {
-                // Store selected process data globally for use in live metrics
-                selectedProcessData = process;
-                
-                document.getElementById('prog-name').textContent = process.name || 'Unknown Process';
-                document.getElementById('prog-pid').textContent = process.pid || '--';
-                
-                // Update CPU, Memory, Disk values to show selected process values
-                const cpuElement = document.getElementById('prog-cpu');
-                if (cpuElement) {
-                    cpuElement.textContent = (process.cpu_percent !== undefined ? process.cpu_percent.toFixed(1) : '0.0') + '%';
-                }
-                
-                const memElement = document.getElementById('prog-mem');
-                if (memElement) {
-                    memElement.textContent = (process.memory_percent !== undefined ? process.memory_percent.toFixed(1) : '0.0') + '%';
-                }
-                
-                const diskElement = document.getElementById('prog-disk');
-                if (diskElement) {
-                    diskElement.textContent = (process.memory_rss_mb !== undefined ? process.memory_rss_mb.toFixed(1) : '0.0') + ' MB';
-                }
-                
-                const phaseElement = document.getElementById('current-phase');
-                if (phaseElement) {
-                    phaseElement.textContent = process.current_phase || 'unknown';
-                }
-                
-                // Update anomaly score and deadlock status if available for the selected process
-                const anomalyElement = document.getElementById('anomaly-score');
-                if (anomalyElement) {
-                    anomalyElement.textContent = process.anomaly_score || '--';
-                }
-                
-                const deadlockElement = document.getElementById('deadlock-status');
-                if (deadlockElement) {
-                    deadlockElement.textContent = process.deadlock_status || '--';
-                }
-            } else {
-                // Reset selected process data when no process is selected
-                selectedProcessData = null;
-            }
-        }
-        
-        // Update phase analysis
-        function updatePhaseAnalysis(phases) {
-            const transitionsDiv = document.getElementById('phaseTransitions');
-            const timelineDiv = document.getElementById('phaseTimeline');
-            
-            if (phases && phases.length > 0) {
-                // Update phase transitions
-                const lastFive = phases.slice(-5);
-                transitionsDiv.innerHTML = `<div class="alert alert-info">Last 5 transitions: ${lastFive.map(p => '<span class="phase-badge">' + p.phase + '</span>').join(' → ')}</div>`;
-                
-                // Update phase timeline visualization
-                if (timelineDiv) {
-                    timelineDiv.innerHTML = '';
-                    const timelineContainer = document.createElement('div');
-                    timelineContainer.style.display = 'flex';
-                    timelineContainer.style.flexWrap = 'wrap';
-                    timelineContainer.style.gap = '5px';
-                    
-                    phases.slice(-20).forEach((phase, index) => {
-                        const phaseBlock = document.createElement('div');
-                        phaseBlock.className = 'phase-badge';
-                        phaseBlock.textContent = phase.phase.substring(0, 3).toUpperCase();
-                        phaseBlock.title = `${phase.phase} (${new Date(phase.timestamp * 1000).toLocaleTimeString()})`;
-                        phaseBlock.style.fontSize = '10px';
-                        phaseBlock.style.padding = '2px 4px';
-                        timelineContainer.appendChild(phaseBlock);
-                    });
-                    
-                    timelineDiv.appendChild(timelineContainer);
-                }
-            } else {
-                transitionsDiv.innerHTML = '<div class="alert alert-warning">No phase transition data available</div>';
-                if (timelineDiv) {
-                    timelineDiv.innerHTML = '<div class="alert alert-info">Phase timeline will appear here once data is collected</div>';
-                }
-            }
-        }
-        
-        // Update deadlock info
-        function updateDeadlockInfo(deadlockData) {
-            const alertsContainer = document.getElementById('deadlockAlerts');
-            const fixesContainer = document.getElementById('deadlockFixes');
-            const historyContainer = document.getElementById('deadlockHistory');
-            
-            if (deadlockData && deadlockData.analysis) {
-                const analysis = deadlockData.analysis;
-                
-                // Update alerts
-                if (analysis.has_cycles) {
-                    alertsContainer.innerHTML = `
-                        <div class="alert alert-critical glow">
-                            <strong>⚠ DEADLOCK DETECTED!</strong><br>
-                            ${analysis.cycle_count} cycle(s) found<br>
-                            Risk Level: ${analysis.risk_level.toUpperCase()}<br>
-                            ${analysis.nodes_in_cycles.length} nodes involved
-                        </div>
-                    `;
-                } else {
-                    alertsContainer.innerHTML = `
-                        <div class="alert alert-info">
-                            <strong>✓ No Deadlocks Detected</strong><br>
-                            Risk Level: ${analysis.risk_level}<br>
-                            ${analysis.total_locks_tracked} locks currently tracked
-                        </div>
-                    `;
-                }
-                
-                // Update suggested fixes
-                if (fixesContainer) {
-                    if (analysis.has_cycles) {
-                        fixesContainer.innerHTML = `
-                            <div class="alert alert-warning">
-                                <strong>Suggested Fixes:</strong><br>
-                                • Implement lock ordering protocol<br>
-                                • Use timeout-based locks<br>
-                                • Consider lock-free algorithms<br>
-                                • Review thread synchronization patterns
-                            </div>
-                        `;
-                    } else {
-                        fixesContainer.innerHTML = `
-                            <div class="alert alert-info">
-                                <strong>Best Practices:</strong><br>
-                                • Maintain consistent lock ordering<br>
-                                • Use RAII for lock management<br>
-                                • Monitor lock contention regularly<br>
-                                • Consider async alternatives when possible
-                            </div>
-                        `;
-                    }
-                }
-                
-                // Update deadlock history
-                if (historyContainer) {
-                    const historical = deadlockData.historical_deadlocks || [];
-                    if (historical.length > 0) {
-                        historyContainer.innerHTML = `
-                            <div class="alert alert-warning">
-                                <strong>Historical Deadlocks (${historical.length}):</strong><br>
-                                ${historical.slice(0, 3).map((dl, i) => 
-                                    `#${i+1}: ${dl.type || 'Unknown'} at ${new Date(dl.timestamp * 1000).toLocaleTimeString()}
-                                `).join('<br>')}
-                            </div>
-                        `;
-                    } else {
-                        historyContainer.innerHTML = '<div class="alert alert-info">No deadlock history recorded</div>';
-                    }
-                }
-            } else {
-                alertsContainer.innerHTML = '<div class="alert alert-info">Analyzing deadlock risks...</div>';
-                if (fixesContainer) fixesContainer.innerHTML = '<div class="alert alert-info">Loading deadlock analysis...</div>';
-                if (historyContainer) historyContainer.innerHTML = '<div class="alert alert-info">Loading deadlock history...</div>';
+                container.innerHTML = '<div class="alert alert-warning">Unable to render wait-for graph: ' + e.message + '</div>';
             }
         }
         
@@ -1478,218 +1362,7 @@
         }
         
         
-        
-        // Update threat classification
-        function updateThreatClassification(alerts) {
-            const container = document.getElementById('threatClassification');
-            if (alerts && alerts.length > 0) {
-                container.innerHTML = alerts.slice(0, 3).map((alert, index) => {
-                    const severity = alert.severity || 'medium';
-                    const cls = severity === 'high' ? 'alert-critical' : 
-                               severity === 'low' ? 'alert-info' : 'alert-warning';
-                    const threatType = alert.type || 'Unknown Threat';
-                    const confidence = alert.confidence ? `(${(alert.confidence * 100).toFixed(1)}%)` : '';
-                    
-                    return `
-                        <div class="alert ${cls}">
-                            <strong>Threat #${index + 1}: ${threatType}</strong> ${confidence}<br>
-                            ${alert.message || 'Security threat detected'}<br>
-                            <small>Severity: ${severity.toUpperCase()}</small>
-                        </div>
-                    `;
-                }).join('');
-            } else {
-                container.innerHTML = `
-                    <div class="alert alert-info">
-                        <strong>No Active Threats</strong><br>
-                        System appears secure<br>
-                        <small>Continue monitoring for anomalies</small>
-                    </div>
-                `;
-            }
-        }
-        
 
-        // Update optimization recommendations
-        function updateOptimizationRecommendations(recs) {
-            const container = document.getElementById('optimizationRecs');
-            
-            // First, try to get ML-based recommendations from the server
-            if (currentPid) {
-                fetch(`/api/profile/${currentPid}/optimize`)
-                    .then(response => {
-                        if (response.ok) {
-                            return response.json();
-                        }
-                        throw new Error('API request failed');
-                    })
-                    .then(data => {
-                        if (data.recommendations && data.recommendations.length > 0) {
-                            // Use ML model predictions for speedup values
-                            const recommendations = data.recommendations;
-                            
-                            if (recommendations.length > 0) {
-                                container.innerHTML = recommendations.slice(0, 3).map((rec, index) => `
-                                    <div class="optimization-card">
-                                        <div class="alert alert-info">
-                                            <strong>Recommendation #${index + 1}: ${rec.technique}</strong><br>
-                                            ${rec.description}
-                                            <br><br>
-                                            <strong>Predicted Impact:</strong> ${rec.predicted_speedup.toFixed(2)}x faster
-                                            <br><strong>Confidence:</strong> ${(rec.confidence * 100).toFixed(1)}%
-                                        </div>
-                                    </div>
-                                `).join('');
-                            } else {
-                                container.innerHTML = `
-                                    <div class="optimization-card">
-                                        <div class="alert alert-info">
-                                            <strong>Performance Analysis Complete</strong><br>
-                                            No critical optimizations needed<br>
-                                            <small>System performing within expected parameters</small>
-                                        </div>
-                                    </div>
-                                `;
-                            }
-                        } else {
-                            // Fallback to rule-based recommendations if ML model doesn't return data
-                            fallbackRecommendations(container);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error fetching ML recommendations:', error);
-                        // Fallback to rule-based recommendations if ML model fails
-                        fallbackRecommendations(container);
-                    });
-            } else {
-                // Fallback to rule-based recommendations if no PID
-                fallbackRecommendations(container);
-            }
-        }
-
-        // Fallback function for rule-based recommendations
-        function fallbackRecommendations(container) {
-            // Get current metrics to base recommendations on
-            let cpuPercent = 0, memPercent = 0, diskPercent = 0;
-            if (currentPid && profile_data[currentPid] && profile_data[currentPid].length > 0) {
-                const latestMetric = profile_data[currentPid][profile_data[currentPid].length - 1];
-                cpuPercent = parseFloat(latestMetric.cpu_percent) || 0;
-                memPercent = parseFloat(latestMetric.memory_percent) || 0;
-                diskPercent = (parseFloat(latestMetric.disk_read_mb) + parseFloat(latestMetric.disk_write_mb)) || 0;
-            }
-            
-            // Generate recommendations based on current metrics
-            let recommendations = [];
-            
-            if (cpuPercent > 80) {
-                recommendations.push({
-                    technique: "CPU Optimization",
-                    description: "High CPU usage detected. Consider optimizing algorithms or reducing computational complexity.",
-                    predicted_speedup: Math.min(2.5, 1 + (cpuPercent / 100)),
-                    confidence: 0.85
-                });
-            }
-            
-            if (memPercent > 80) {
-                recommendations.push({
-                    technique: "Memory Management",
-                    description: "High memory usage detected. Consider optimizing memory allocation or garbage collection.",
-                    predicted_speedup: Math.min(2.0, 1 + (memPercent / 100)),
-                    confidence: 0.80
-                });
-            }
-            
-            if (diskPercent > 100) {  // Assuming high disk I/O
-                recommendations.push({
-                    technique: "I/O Optimization",
-                    description: "High disk I/O detected. Consider optimizing file operations or using buffering.",
-                    predicted_speedup: Math.min(1.8, 1 + (diskPercent / 200)),
-                    confidence: 0.75
-                });
-            }
-            
-            // If no specific issues found, add general recommendations
-            if (recommendations.length === 0) {
-                recommendations.push({
-                    technique: "Performance Tuning",
-                    description: "System appears stable. Consider fine-tuning for optimal performance.",
-                    predicted_speedup: 1.1,
-                    confidence: 0.60
-                });
-            }
-            
-            if (recommendations.length > 0) {
-                container.innerHTML = recommendations.slice(0, 3).map((rec, index) => `
-                    <div class="optimization-card">
-                        <div class="alert alert-info">
-                            <strong>Recommendation #${index + 1}: ${rec.technique}</strong><br>
-                            ${rec.description}
-                            <br><br>
-                            <strong>Predicted Impact:</strong> ${rec.predicted_speedup.toFixed(2)}x faster
-                            <br><strong>Confidence:</strong> ${(rec.confidence * 100).toFixed(1)}%
-                        </div>
-                    </div>
-                `).join('');
-            } else {
-                container.innerHTML = `
-                    <div class="optimization-card">
-                        <div class="alert alert-info">
-                            <strong>Performance Analysis Complete</strong><br>
-                            No critical optimizations needed<br>
-                            <small>System performing within expected parameters</small>
-                        </div>
-                    </div>
-                `;
-            }
-        }
-        
-        // Update ML stats
-        function updateMLStats(stats) {
-            const container = document.getElementById('mlStats');
-            if (stats.status === 'success' && stats.models) {
-                const anomalyModel = stats.models.anomaly;
-                const regressionModel = stats.models.regression;
-                
-                container.innerHTML = `
-                    <div class="metric-cards">
-                        <div class="metric-card">
-                            <div class="metric-label">Anomaly Model</div>
-                            <div class="metric-value" style="${anomalyModel.loaded ? 'color: var(--primary);' : 'color: var(--warning);'}">
-                                ${anomalyModel.loaded ? '✓ LOADED' : '○ NOT LOADED'}
-                            </div>
-                            <div style="font-size: 12px; color: var(--accent);">
-                                Size: ${anomalyModel.size_mb || 0} MB<br>
-                                Method: ${stats.anomaly_detector?.detection_method || 'Unknown'}
-                            </div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-label">Regression Model</div>
-                            <div class="metric-value" style="${regressionModel.loaded ? 'color: var(--primary);' : 'color: var(--warning);'}">
-                                ${regressionModel.loaded ? '✓ LOADED' : '○ NOT LOADED'}
-                            </div>
-                            <div style="font-size: 12px; color: var(--accent);">
-                                Size: ${regressionModel.size_mb || 0} MB<br>
-                                Method: ${stats.recommender?.prediction_method || 'Unknown'}
-                            </div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-label">System Info</div>
-                            <div class="metric-value">${stats.system_info?.total_models || 0}</div>
-                            <div style="font-size: 12px; color: var(--accent);">
-                                Total Models<br>
-                                ${stats.system_info?.total_size_mb || 0} MB Total
-                            </div>
-                        </div>
-                    </div>
-                    <div style="margin-top: 15px; font-size: 12px; color: var(--accent);">
-                        <strong>Last Updated:</strong> ${new Date(stats.timestamp).toLocaleString()}<br>
-                        <strong>Models Directory:</strong> ${stats.system_info?.models_directory || 'Unknown'}
-                    </div>
-                `;
-            } else {
-                container.innerHTML = '<div class="alert alert-info">Loading model stats...</div>';
-            }
-        }
         
         // Update real-time charts
         function updateRealtimeCharts() {
@@ -1962,40 +1635,6 @@
                     }
                 }
             });
-            
-            // Performance gain chart
-            const perfCtx = document.getElementById('performanceGainChart').getContext('2d');
-            performanceGainChart = new Chart(perfCtx, {
-                type: 'bar',
-                data: {
-                    labels: ['Recommendation 1', 'Recommendation 2', 'Recommendation 3'],
-                    datasets: [{
-                        label: 'Predicted Speedup (x)',
-                        data: [1.5, 2.1, 1.8],
-                        backgroundColor: 'rgba(100, 255, 218, 0.5)'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            labels: { color: '#f8f8f2' }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                            ticks: { color: '#f8f8f2' },
-                            min: 0
-                        },
-                        x: {
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                            ticks: { color: '#f8f8f2' }
-                        }
-                    }
-                }
-            });
         }
         
         // Alert action handlers
@@ -2015,9 +1654,6 @@
                 if (currentPid) {
                     updateDashboard();
                 }
-                // Also update ML stats and performance gain periodically
-                updateMLStatsDisplay();
-                updatePerformanceGainDisplay();
                 // Update live metrics chart with process-specific data
                 updateLiveMetricsChart();
             }, 2000); // Update every 2 seconds
@@ -2041,112 +1677,7 @@
                     document.getElementById('top-sys-consumers').textContent = 'System Idle, Chrome, VSCode';
                 }
             }, 1000);
-            
-            // Load ML stats on initial load
-            updateMLStatsDisplay();
-            
-            // Load performance gain data on initial load
-            updatePerformanceGainDisplay();
         });
-        
-        // Update ML stats display
-        async function updateMLStatsDisplay() {
-            try {
-                const response = await fetch('/api/ml/model/stats');
-                if (response.ok) {
-                    const stats = await response.json();
-                    updateMLStats(stats);
-                }
-            } catch (error) {
-                console.error('Error fetching ML stats:', error);
-                // Show error state
-                const container = document.getElementById('mlStats');
-                container.innerHTML = '<div class="alert alert-warning">Failed to load model stats</div>';
-            }
-        }
-        
-        // Update performance gain display
-        async function updatePerformanceGainDisplay() {
-            try {
-                const response = await fetch('/api/performance/gain');
-                if (response.ok) {
-                    const data = await response.json();
-                    updatePerformanceGain(data);
-                }
-            } catch (error) {
-                console.error('Error fetching performance gain data:', error);
-                // Show error state
-                const container = document.getElementById('optimizationRecs');
-                container.innerHTML = '<div class="alert alert-warning">Failed to load optimization recommendations</div>';
-            }
-        }
-        
-        // Update performance gain visualization
-        function updatePerformanceGain(data) {
-            const container = document.getElementById('optimizationRecs');
-            if (data.status === 'success' && data.recommendations) {
-                const metrics = data.aggregate_metrics;
-                const recommendations = data.recommendations;
-                
-                let html = `
-                    <div class="metric-cards">
-                        <div class="metric-card">
-                            <div class="metric-label">Average Speedup</div>
-                            <div class="metric-value">${metrics.average_speedup}x</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-label">Maximum Speedup</div>
-                            <div class="metric-value">${metrics.maximum_speedup}x</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-label">Total Recommendations</div>
-                            <div class="metric-value">${metrics.total_recommendations}</div>
-                        </div>
-                    </div>
-                    
-                    <div style="margin-top: 20px;">
-                        <h3>Optimization Techniques</h3>
-                `;
-                
-                recommendations.forEach((rec, index) => {
-                    const confidenceColor = rec.confidence > 0.8 ? 'var(--primary)' : rec.confidence > 0.6 ? 'var(--warning)' : 'var(--critical)';
-                    const effortColor = rec.estimated_effort === 'Low' ? 'var(--primary)' : rec.estimated_effort === 'Medium' ? 'var(--warning)' : 'var(--critical)';
-                    
-                    html += `
-                        <div class="optimization-card">
-                            <h4>${rec.technique}</h4>
-                            <div style="display: flex; justify-content: space-between; margin: 10px 0;">
-                                <div><strong>Predicted Speedup:</strong> <span style="color: ${'var(--primary)'}; font-size: 18px;">${rec.predicted_speedup}x</span></div>
-                                <div><strong>Confidence:</strong> <span style="color: ${confidenceColor};">${Math.round(rec.confidence * 100)}%</span></div>
-                                <div><strong>Effort:</strong> <span style="color: ${effortColor};">${rec.estimated_effort}</span></div>
-                            </div>
-                            <p>${rec.description}</p>
-
-                        </div>
-                    `;
-                });
-                
-                html += `
-                    </div>
-                    <div style="margin-top: 15px; font-size: 12px; color: var(--accent);">
-                        <strong>Method:</strong> ${data.model_info.prediction_method}<br>
-                        <strong>Last Updated:</strong> ${new Date(data.timestamp).toLocaleString()}
-                    </div>
-                `;
-                
-                container.innerHTML = html;
-                
-                // Update performance gain chart if it exists
-                if (performanceGainChart && data.recommendations.length >= 3) {
-                    const chartData = performanceGainChart.data;
-                    chartData.labels = data.recommendations.slice(0, 3).map(r => r.technique);
-                    chartData.datasets[0].data = data.recommendations.slice(0, 3).map(r => r.predicted_speedup);
-                    performanceGainChart.update();
-                }
-            } else {
-                container.innerHTML = '<div class="alert alert-info">Loading optimization recommendations...</div>';
-            }
-        }
     </script>
 </body>
 </html>

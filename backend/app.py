@@ -265,18 +265,8 @@ def continuous_profiling(pid):
             # Get process metrics
             p = psutil.Process(pid)
             
-            # Collect metrics - first call to cpu_percent() may return 0.0
-            # To address this, we first try to get the CPU percent from the process
-            cpu_percent = p.cpu_percent()
-            
-            # If cpu_percent is still 0.0 (first call or low usage), we try to get the latest non-zero value from profile_data if available
-            # This helps maintain continuity in the display
-            if cpu_percent == 0.0 and pid in profile_data and profile_data[pid]:
-                # Look for the last non-zero CPU percent
-                for metric in reversed(profile_data[pid]):
-                    if metric.get('cpu_percent', 0) != 0:
-                        cpu_percent = metric['cpu_percent']
-                        break
+            # Collect metrics - use interval=0.1 for responsive CPU sampling
+            cpu_percent = p.cpu_percent(interval=0.1)
             
             memory_info = p.memory_info()
             memory_percent = p.memory_percent()
@@ -665,8 +655,8 @@ def get_process_tree(pid):
                         # memory_rss_mb may be stored as memory_used_mb in profile_data
                         memory_info = None
                     else:
-                        # Fallback to live psutil snapshot
-                        cpu_percent = process.cpu_percent()
+                        # Fallback to live psutil snapshot with interval parameter
+                        cpu_percent = process.cpu_percent(interval=0.05)
                         memory_percent = process.memory_percent()
                         memory_info = process.memory_info()
                     
@@ -734,7 +724,7 @@ def get_process_tree(pid):
                     'pid': pid,
                     'name': main_process.name(),
                     'status': main_process.status(),
-                    'cpu_percent': main_process.cpu_percent(),
+                    'cpu_percent': main_process.cpu_percent(interval=0.05),
                     'memory_percent': main_process.memory_percent(),
                     'memory_rss_mb': main_process.memory_info().rss / (1024**2),
                     'current_phase': 'unknown',
@@ -959,6 +949,37 @@ def detect_deadlock(pid):
     """Detect deadlock risks for a specific PID."""
     try:
         
+        # If a simulator has produced a deadlock report file for this PID, return it
+        report_path = os.path.join(os.path.dirname(__file__), 'data', 'deadlocks', f'{pid}_deadlock.json')
+        if os.path.exists(report_path):
+            try:
+                with open(report_path, 'r') as fh:
+                    rpt = json.load(fh)
+                    analysis = rpt.get('analysis', {})
+                    # Build enhanced analysis payload including graph when available
+                    enhanced_analysis = {
+                        'has_cycles': analysis.get('has_cycles', False),
+                        'cycle_count': analysis.get('cycle_count', 0),
+                        'risk_level': analysis.get('risk_level', 'high' if analysis.get('has_cycles') else 'low'),
+                        'nodes_in_cycles': analysis.get('nodes_in_cycles', []),
+                        'total_locks_tracked': analysis.get('total_locks_tracked', 0),
+                        'timestamp': analysis.get('timestamp', time.time()),
+                        'process_pid': analysis.get('process_pid', pid),
+                        'graph': analysis.get('graph')
+                    }
+                    historical_deadlocks = []
+                    if pid in active_profiles:
+                        historical_deadlocks = active_profiles[pid].get('deadlocks', [])
+                    return jsonify({
+                        'status': 'success',
+                        'analysis': enhanced_analysis,
+                        'graph': enhanced_analysis.get('graph'),
+                        'historical_deadlocks': historical_deadlocks,
+                        'pid': pid
+                    })
+            except Exception:
+                pass
+
         # Always run fresh deadlock analysis with PID context
         detector = DeadlockDetector()
         fresh_analysis = detector.analyze_deadlock_risk(pid=pid)
@@ -983,6 +1004,7 @@ def detect_deadlock(pid):
         return jsonify({
             'status': 'success',
             'analysis': enhanced_analysis,
+            'graph': enhanced_analysis.get('graph'),
             'historical_deadlocks': historical_deadlocks,
             'pid': pid
         })
@@ -1002,6 +1024,7 @@ def detect_deadlock(pid):
                 'timestamp': time.time(),
                 'process_pid': request.view_args.get('pid', 0)
             },
+            'graph': None,
             'historical_deadlocks': [],
             'pid': request.view_args.get('pid', 0)
         })

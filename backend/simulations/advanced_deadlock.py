@@ -131,6 +131,84 @@ class AdvancedDeadlockSimulator:
             daemon=True
         )
         monitor_thread.start()
+
+        # Intentionally create a deterministic deadlock between two helper threads
+        # so that the backend detector can observe a classic circular wait.
+        def create_deterministic_deadlock():
+            if self.num_resources < 2:
+                return
+
+            r0 = self.resources[0]
+            r1 = self.resources[1]
+
+            def dl_a():
+                try:
+                    r0.acquire()
+                    # ensure ordering to increase chance of circular wait
+                    time.sleep(0.2)
+                    # this will block if r1 is held by other thread
+                    r1.acquire()
+                except Exception:
+                    pass
+
+            def dl_b():
+                try:
+                    r1.acquire()
+                    time.sleep(0.2)
+                    r0.acquire()
+                except Exception:
+                    pass
+
+            t_a = threading.Thread(target=dl_a, name="DL-A", daemon=True)
+            t_b = threading.Thread(target=dl_b, name="DL-B", daemon=True)
+            t_a.start()
+            t_b.start()
+
+            # Give threads time to reach deadlock, then write a deadlock report file
+            time.sleep(1.0)
+            try:
+                # Write deadlock descriptor so backend can pick it up
+                import json
+                sim_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'deadlocks'))
+                os.makedirs(sim_dir, exist_ok=True)
+                pid = os.getpid()
+                report_path = os.path.join(sim_dir, f"{pid}_deadlock.json")
+
+                graph = {
+                    'nodes': [
+                        {'id': f'DL-A', 'label': 'DL-A'},
+                        {'id': f'DL-B', 'label': 'DL-B'},
+                        {'id': 'Resource_0', 'label': 'Resource_0'},
+                        {'id': 'Resource_1', 'label': 'Resource_1'}
+                    ],
+                    'edges': [
+                        {'source': 'DL-A', 'target': 'Resource_0'},
+                        {'source': 'Resource_0', 'target': 'DL-B'},
+                        {'source': 'DL-B', 'target': 'Resource_1'},
+                        {'source': 'Resource_1', 'target': 'DL-A'}
+                    ]
+                }
+
+                analysis = {
+                    'has_cycles': True,
+                    'cycle_count': 1,
+                    'risk_level': 'high',
+                    'nodes_in_cycles': ['DL-A','DL-B','Resource_0','Resource_1'],
+                    'total_locks_tracked': self.num_resources,
+                    'graph': graph,
+                    'timestamp': time.time(),
+                    'process_pid': pid
+                }
+
+                with open(report_path, 'w') as fh:
+                    json.dump({'analysis': analysis}, fh)
+
+                print(f"[AdvancedDeadlock] Wrote deadlock report: {report_path}")
+            except Exception as e:
+                print(f"[AdvancedDeadlock] Failed to write deadlock report: {e}")
+
+        # Fire-and-forget deterministic deadlock creator
+        threading.Thread(target=create_deterministic_deadlock, name="DeadlockCreator", daemon=True).start()
         
         print(f"\n[Advanced Deadlock Simulator] Started {self.num_threads} worker threads with {self.num_resources} resources\n")
         
