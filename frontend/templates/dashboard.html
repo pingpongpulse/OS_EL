@@ -8,34 +8,32 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
-        /* Cyberpunk theme */
+        /* Light page background with white cards */
         :root {
-            --bg-dark: #0c1c33;
-            --primary: #64ffda;
-            --warning: #ffb86c;
-            --critical: #ff5555;
-            --accent: #bd93f9;
-            --text: #f8f8f2;
-            --text-secondary: #cdd3de;
-            --card-bg: rgba(25, 33, 48, 0.8);
-            --border-color: #64ffda;
-            --glow-primary: 0 0 10px rgba(100, 255, 218, 0.5);
-            --glow-warning: 0 0 10px rgba(255, 184, 108, 0.5);
-            --glow-critical: 0 0 10px rgba(255, 85, 85, 0.5);
-            --glow-accent: 0 0 10px rgba(189, 147, 249, 0.5);
+            --bg-primary: #F6F8FA;
+            --card-bg: #FFFFFF;
+            --text-primary: #0F1419;
+            --text-secondary: #6E7681;
+            --text-tertiary: #8B949E;
+            --border-subtle: rgba(15,20,25,0.06);
+            --border-medium: rgba(15,20,25,0.10);
+            --btn-primary: #238636;
+            --btn-primary-hover: #2EA043;
+            --link: #58A6FF;
+            --cpu-primary: #58A6FF;
+            --memory-primary: #3FB950;
+            --disk-primary: #D29922;
+            --card-shadow: 0 10px 30px rgba(15,20,25,0.06), 0 1px 0 rgba(15,20,25,0.02);
+            --card-shadow-hover: 0 18px 40px rgba(15,20,25,0.12), 0 2px 6px rgba(15,20,25,0.04);
         }
-        
+
         body {
-            background-color: var(--bg-dark);
-            color: var(--text);
-            font-family: 'Fira Code', 'JetBrains Mono', monospace;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
             margin: 0;
             padding: 0;
             overflow-x: hidden;
-            background-image: radial-gradient(rgba(100, 255, 218, 0.05) 1px, transparent 1px),
-                              radial-gradient(rgba(189, 147, 249, 0.05) 1px, transparent 1px);
-            background-size: 50px 50px;
-            background-position: 0 0, 25px 25px;
         }
         
         .cyber-container {
@@ -47,12 +45,11 @@
         /* Top bar controls */
         .top-controls {
             background: var(--card-bg);
-            border: 1px solid var(--border-color);
+            border: 1px solid var(--border-subtle);
             border-radius: 8px;
             padding: 15px;
             margin-bottom: 20px;
-            backdrop-filter: blur(10px);
-            box-shadow: 0 0 15px rgba(100, 255, 218, 0.2);
+            box-shadow: var(--card-shadow);
         }
         
         .control-group {
@@ -63,12 +60,12 @@
         }
         
         .control-group input {
-            background: rgba(0, 0, 0, 0.5);
-            border: 1px solid var(--accent);
-            color: var(--text);
+            background: rgba(15,20,25,0.02);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-primary);
             padding: 8px 12px;
             border-radius: 4px;
-            font-family: 'Fira Code', monospace;
+            font-family: 'Inter', sans-serif;
             flex: 1;
             min-width: 300px;
         }
@@ -146,14 +143,15 @@
             margin-bottom: 20px;
         }
         
-        .tab {
-            background: transparent;
+        .btn {
+            background: var(--btn-primary);
+            color: #ffffff;
             border: none;
-            color: var(--text);
-            padding: 10px 20px;
+            padding: 8px 16px;
             cursor: pointer;
             font-family: 'Fira Code', monospace;
             font-size: 16px;
+            box-shadow: 0 6px 18px rgba(15,20,25,0.06);
             position: relative;
             transition: all 0.3s ease;
         }
@@ -387,9 +385,9 @@
 
         <!-- Tabs -->
         <div class="tabs">
-            <button class="tab active" data-tab="overview">Programme Matrix</button>
-            <button class="tab" data-tab="execution">Execution & Concurrency Analysis</button>
-            <button class="tab" data-tab="intelligence">Intelligence & Optimization</button>
+            <button class="tab active" data-tab="overview">Program Matrix</button>
+            <button class="tab" data-tab="execution">Execution and Concurrency Analysis</button>
+            <button class="tab" data-tab="intelligence">Intelligence and Optimization</button>
         </div>
 
         <!-- Tab Content -->
@@ -1236,21 +1234,25 @@
                     .force('link', d3.forceLink(links).id(d => d.id).distance(80))
                     .on('tick', ticked);
 
+                const theme = getComputedStyle(document.documentElement);
+                const criticalColor = (theme.getPropertyValue('--status-critical') || '#F85149').trim();
+                const textPrimary = (theme.getPropertyValue('--text-primary') || '#E6EDF3').trim();
+
                 const link = svg.append('g')
-                    .attr('stroke', '#ff5555')
+                    .attr('stroke', criticalColor)
                     .selectAll('line')
                     .data(links)
                     .join('line')
                     .attr('stroke-width', 2);
 
                 const node = svg.append('g')
-                    .attr('stroke', '#fff')
+                    .attr('stroke', textPrimary)
                     .attr('stroke-width', 1.5)
                     .selectAll('circle')
                     .data(nodes)
                     .join('circle')
                     .attr('r', 12)
-                    .attr('fill', '#ff5555')
+                    .attr('fill', criticalColor)
                     .call(drag(simulation));
 
                 const label = svg.append('g')
@@ -1463,8 +1465,29 @@
         
         // Initialize charts
         function initCharts() {
+            // Theme colors from CSS
+            const theme = getComputedStyle(document.documentElement);
+            const cpuPrimary = (theme.getPropertyValue('--cpu-primary') || '#58A6FF').trim();
+            const cpuStart = (theme.getPropertyValue('--cpu-gradient-start') || '#4184E4').trim();
+            const cpuEnd = (theme.getPropertyValue('--cpu-gradient-end') || '#79C0FF').trim();
+            const memPrimary = (theme.getPropertyValue('--memory-primary') || '#3FB950').trim();
+            const memStart = (theme.getPropertyValue('--memory-gradient-start') || '#2EA043').trim();
+            const memEnd = (theme.getPropertyValue('--memory-gradient-end') || '#56D364').trim();
+            const diskPrimary = (theme.getPropertyValue('--disk-primary') || '#D29922').trim();
+            const textMuted = (theme.getPropertyValue('--text-secondary') || '#8B949E').trim();
+            const gridColor = (theme.getPropertyValue('--border-subtle') || 'rgba(45,51,59,0.5)').trim();
             // Program resource chart
             const resourceCtx = document.getElementById('programResourceChart').getContext('2d');
+            // gradients
+            const resCpuGrad = resourceCtx.createLinearGradient(0,0,0,300);
+            resCpuGrad.addColorStop(0, cpuStart);
+            resCpuGrad.addColorStop(1, cpuEnd);
+            const resMemGrad = resourceCtx.createLinearGradient(0,0,0,300);
+            resMemGrad.addColorStop(0, memStart);
+            resMemGrad.addColorStop(1, memEnd);
+            const resDiskGrad = resourceCtx.createLinearGradient(0,0,0,300);
+            resDiskGrad.addColorStop(0, diskPrimary + '');
+            resDiskGrad.addColorStop(1, diskPrimary + '');
             programResourceChart = new Chart(resourceCtx, {
                 type: 'line',
                 data: {
@@ -1473,24 +1496,24 @@
                         {
                             label: 'CPU %',
                             data: Array(10).fill(0),
-                            borderColor: '#64ffda',
-                            backgroundColor: 'rgba(100, 255, 218, 0.1)',
+                            borderColor: cpuPrimary,
+                            backgroundColor: resCpuGrad,
                             tension: 0.3,
                             fill: true
                         },
                         {
                             label: 'Memory %',
                             data: Array(10).fill(0),
-                            borderColor: '#bd93f9',
-                            backgroundColor: 'rgba(189, 147, 249, 0.1)',
+                            borderColor: memPrimary,
+                            backgroundColor: resMemGrad,
                             tension: 0.3,
                             fill: true
                         },
                         {
                             label: 'Disk I/O MB/s',
                             data: Array(10).fill(0),
-                            borderColor: '#ffb86c',
-                            backgroundColor: 'rgba(255, 184, 108, 0.1)',
+                            borderColor: diskPrimary,
+                            backgroundColor: resDiskGrad,
                             tension: 0.3,
                             fill: true
                         }
@@ -1501,18 +1524,18 @@
                     maintainAspectRatio: false,
                     plugins: {
                         legend: {
-                            labels: { color: '#f8f8f2' }
+                            labels: { color: textMuted }
                         }
                     },
                     scales: {
                         y: {
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                            ticks: { color: '#f8f8f2' },
+                            grid: { color: gridColor },
+                            ticks: { color: textMuted },
                             min: 0
                         },
                         x: {
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                            ticks: { color: '#f8f8f2' }
+                            grid: { color: gridColor },
+                            ticks: { color: textMuted }
                         }
                     }
                 }
@@ -1525,24 +1548,24 @@
                 data: {
                     labels: Array(30).fill(''),
                     datasets: [
-                        {
-                            label: 'CPU %',
-                            data: Array(30).fill(0),
-                            borderColor: '#64ffda',
-                            tension: 0.3
-                        },
-                        {
-                            label: 'Memory %',
-                            data: Array(30).fill(0),
-                            borderColor: '#bd93f9',
-                            tension: 0.3
-                        },
-                        {
-                            label: 'Disk (MB)',
-                            data: Array(30).fill(0),
-                            borderColor: '#ffb86c',
-                            tension: 0.3
-                        }
+                                {
+                                    label: 'CPU %',
+                                    data: Array(30).fill(0),
+                                    borderColor: cpuPrimary,
+                                    tension: 0.3
+                                },
+                                {
+                                    label: 'Memory %',
+                                    data: Array(30).fill(0),
+                                    borderColor: memPrimary,
+                                    tension: 0.3
+                                },
+                                {
+                                    label: 'Disk (MB)',
+                                    data: Array(30).fill(0),
+                                    borderColor: diskPrimary,
+                                    tension: 0.3
+                                }
                     ]
                 },
                 options: {
@@ -1550,19 +1573,19 @@
                     maintainAspectRatio: false,
                     plugins: {
                         legend: {
-                            labels: { color: '#f8f8f2' }
+                            labels: { color: textMuted }
                         }
                     },
                     scales: {
                         y: {
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                            ticks: { color: '#f8f8f2' },
+                            grid: { color: gridColor },
+                            ticks: { color: textMuted },
                             min: 0
                             // Note: We don't set max: 100 anymore since disk usage can be higher
                         },
                         x: {
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                            ticks: { color: '#f8f8f2' }
+                            grid: { color: gridColor },
+                            ticks: { color: textMuted }
                         }
                     }
                 }
@@ -1577,11 +1600,11 @@
                     datasets: [{
                         data: [30, 25, 15, 20, 10],
                         backgroundColor: [
-                            '#64ffda',
-                            '#bd93f9',
-                            '#ffb86c',
-                            '#ff79c6',
-                            '#50fa7b'
+                            cpuPrimary,
+                            diskPrimary,
+                            memPrimary,
+                            (theme.getPropertyValue('--link') || '#58A6FF').trim(),
+                            (theme.getPropertyValue('--status-normal') || '#3FB950').trim()
                         ]
                     }]
                 },
@@ -1590,7 +1613,7 @@
                     maintainAspectRatio: false,
                     plugins: {
                         legend: {
-                            labels: { color: '#f8f8f2' }
+                            labels: { color: textMuted }
                         }
                     }
                 }
@@ -1598,6 +1621,11 @@
             
             // Anomaly timeline chart (intelligence tab)
             const anomalyCtx = document.getElementById('anomalyTimelineChart').getContext('2d');
+            const anomalyColor = (theme.getPropertyValue('--status-critical') || '#F85149').trim();
+            const anomalyGrad = anomalyCtx.createLinearGradient(0,0,0,300);
+            anomalyGrad.addColorStop(0, anomalyColor + '');
+            anomalyGrad.addColorStop(1, anomalyColor + '');
+
             anomalyTimelineChart = new Chart(anomalyCtx, {
                 type: 'line',
                 data: {
@@ -1606,8 +1634,8 @@
                         {
                             label: 'Anomaly Score',
                             data: Array(30).fill(0),
-                            borderColor: '#ff5555',
-                            backgroundColor: 'rgba(255, 85, 85, 0.1)',
+                            borderColor: anomalyColor,
+                            backgroundColor: anomalyGrad,
                             tension: 0.3,
                             fill: true
                         }
@@ -1618,19 +1646,19 @@
                     maintainAspectRatio: false,
                     plugins: {
                         legend: {
-                            labels: { color: '#f8f8f2' }
+                            labels: { color: textMuted }
                         }
                     },
                     scales: {
                         y: {
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                            ticks: { color: '#f8f8f2' },
+                            grid: { color: gridColor },
+                            ticks: { color: textMuted },
                             min: 0,
                             max: 1
                         },
                         x: {
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                            ticks: { color: '#f8f8f2' }
+                            grid: { color: gridColor },
+                            ticks: { color: textMuted }
                         }
                     }
                 }

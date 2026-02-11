@@ -22,6 +22,26 @@ function initMetricsChart(canvasId, metricsData) {
         metricsChart.destroy();
     }
 
+    // Pull theme colors from CSS variables for consistency
+    const style = getComputedStyle(document.documentElement);
+    const cpuPrimary = (style.getPropertyValue('--cpu-primary') || '#58A6FF').trim();
+    const cpuStart = (style.getPropertyValue('--cpu-gradient-start') || '#4184E4').trim();
+    const cpuEnd = (style.getPropertyValue('--cpu-gradient-end') || '#79C0FF').trim();
+    const memPrimary = (style.getPropertyValue('--memory-primary') || '#3FB950').trim();
+    const memStart = (style.getPropertyValue('--memory-gradient-start') || '#2EA043').trim();
+    const memEnd = (style.getPropertyValue('--memory-gradient-end') || '#56D364').trim();
+    const gridColor = (style.getPropertyValue('--border-subtle') || '#2D333B').trim();
+    const textMuted = (style.getPropertyValue('--text-secondary') || '#8B949E').trim();
+
+    // Create vertical gradients for the area fills
+    const cpuGradient = ctx.getContext('2d').createLinearGradient(0, 0, 0, 300);
+    cpuGradient.addColorStop(0, cpuStart + '');
+    cpuGradient.addColorStop(1, cpuEnd + '');
+
+    const memGradient = ctx.getContext('2d').createLinearGradient(0, 0, 0, 300);
+    memGradient.addColorStop(0, memStart + '');
+    memGradient.addColorStop(1, memEnd + '');
+
     metricsChart = new Chart(ctx, {
         type: 'line',
         data: {
@@ -30,26 +50,26 @@ function initMetricsChart(canvasId, metricsData) {
                 {
                     label: 'CPU Usage (%)',
                     data: cpuData,
-                    borderColor: '#64ffda',
-                    backgroundColor: 'rgba(100, 255, 218, 0.1)',
+                    borderColor: cpuPrimary,
+                    backgroundColor: cpuGradient,
                     borderWidth: 2,
                     tension: 0.3,
                     fill: true,
                     pointRadius: 2,
-                    pointBackgroundColor: '#64ffda',
-                    pointBorderColor: '#64ffda'
+                    pointBackgroundColor: cpuPrimary,
+                    pointBorderColor: cpuPrimary
                 },
                 {
                     label: 'Memory Usage (%)',
                     data: memoryData,
-                    borderColor: '#ff6b6b',
-                    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                    borderColor: memPrimary,
+                    backgroundColor: memGradient,
                     borderWidth: 2,
                     tension: 0.3,
                     fill: true,
                     pointRadius: 2,
-                    pointBackgroundColor: '#ff6b6b',
-                    pointBorderColor: '#ff6b6b'
+                    pointBackgroundColor: memPrimary,
+                    pointBorderColor: memPrimary
                 }
             ]
         },
@@ -59,7 +79,7 @@ function initMetricsChart(canvasId, metricsData) {
             plugins: {
                 legend: {
                     labels: {
-                        color: '#94a3b8',
+                        color: textMuted,
                         font: { size: 12, weight: '500' },
                         padding: 15
                     }
@@ -70,18 +90,18 @@ function initMetricsChart(canvasId, metricsData) {
                     beginAtZero: true,
                     max: 100,
                     grid: {
-                        color: 'rgba(30, 41, 59, 0.5)'
+                        color: gridColor
                     },
                     ticks: {
-                        color: '#94a3b8'
+                        color: textMuted
                     }
                 },
                 x: {
                     grid: {
-                        color: 'rgba(30, 41, 59, 0.5)'
+                        color: gridColor
                     },
                     ticks: {
-                        color: '#94a3b8'
+                        color: textMuted
                     }
                 }
             }
@@ -100,17 +120,26 @@ function initPhaseChart(canvasId, phaseCounts) {
         phaseChart.destroy();
     }
 
+    // Pull palette from CSS variables
+    const style = getComputedStyle(document.documentElement);
+    const cpuColor = (style.getPropertyValue('--cpu-primary') || '#58A6FF').trim();
+    const memColor = (style.getPropertyValue('--memory-primary') || '#3FB950').trim();
+    const ioColor = (style.getPropertyValue('--disk-primary') || '#D29922').trim();
+    const infoColor = (style.getPropertyValue('--status-info') || '#58A6FF').trim();
+    const mixedColor = (style.getPropertyValue('--accent') || '#238636').trim();
+
     const colors = {
-        'cpu_bound': '#64ffda',
-        'io_bound': '#ff6b6b',
-        'memory_bound': '#feca57',
-        'idle': '#48dbfb',
-        'mixed': '#a29bfe'
+        'cpu_bound': cpuColor,
+        'io_bound': ioColor,
+        'memory_bound': memColor,
+        'idle': infoColor,
+        'mixed': mixedColor
     };
 
     const labels = Object.keys(phaseCounts);
     const data = Object.values(phaseCounts);
-    const backgroundColors = labels.map(l => colors[l] || '#64ffda');
+    const defaultColor = (style.getPropertyValue('--link') || '#58A6FF').trim();
+    const backgroundColors = labels.map(l => colors[l] || defaultColor);
 
     phaseChart = new Chart(ctx, {
         type: 'doughnut',
@@ -119,7 +148,7 @@ function initPhaseChart(canvasId, phaseCounts) {
             datasets: [{
                 data: data,
                 backgroundColor: backgroundColors,
-                borderColor: '#0a192f',
+                borderColor: (style.getPropertyValue('--bg-primary') || '#0F1419').trim(),
                 borderWidth: 2
             }]
         },
@@ -128,7 +157,7 @@ function initPhaseChart(canvasId, phaseCounts) {
             plugins: {
                 legend: {
                     labels: {
-                        color: '#94a3b8',
+                        color: (style.getPropertyValue('--text-secondary') || '#8B949E').trim(),
                         font: { size: 12 },
                         padding: 15
                     }
